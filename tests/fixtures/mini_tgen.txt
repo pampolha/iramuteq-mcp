@@ -1,0 +1,2 @@
+travail	travail	entreprise	communication	management	competence
+loisirs	lecture	musique	cinema	sport	jardinage

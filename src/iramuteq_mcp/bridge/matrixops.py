@@ -344,3 +344,103 @@ def run_matrix_similitude(
     from . import results
 
     return results.parse_similitude(obj, msum)
+
+
+def run_freqmulti(
+    matrix_path: str,
+    columns: list[int],
+    encoding: str = "utf-8",
+    colsep: str = ";",
+) -> dict:
+    """Frequencies of multi-valued columns (IRaMuTeQ FreqMultiple)."""
+    from tabfrequence import FreqMultiple
+
+    tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
+    patches.sweep()
+
+    class HeadlessFreqMulti(FreqMultiple):
+        def doparametres(self, dlg=None):
+            self.parametres["colsel"] = list(columns)
+            self.parametres["header"] = True
+            self.parametres["NA"] = False
+
+    parametres = {"type": "freqmulti", "colsel": list(columns), "header": True, "NA": False}
+    obj = HeadlessFreqMulti(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    from . import results
+
+    return results.parse_freqmulti(obj, msum)
+
+
+def run_splitvar(
+    matrix_path: str,
+    column: int,
+    encoding: str = "utf-8",
+    colsep: str = ";",
+) -> dict:
+    """Split a matrix into one matrix per modality of ``column`` (IRaMuTeQ SplitMatrixFromVar).
+
+    The source also registers each new matrix in the IRaMuTeQ history.
+    """
+    from tabsplitvar import SplitMatrixFromVar
+
+    tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
+    patches.sweep()
+    modalities = sorted(tableau.splitfromvar(column).keys())
+
+    class HeadlessSplit(SplitMatrixFromVar):
+        def doparametres(self, dlg=None):
+            self.parametres["colsel"] = [column]
+            self.parametres["header"] = True
+            self.parametres["tohistory"] = False
+
+    parametres = {"type": "splitvar", "colsel": [column], "header": True, "tohistory": False}
+    obj = HeadlessSplit(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    from . import results
+
+    return results.parse_splitvar(obj, msum, modalities)
+
+
+def run_proto(
+    matrix_path: str,
+    words_columns: list[int],
+    rank_columns: list[int],
+    freqmin: int = 2,
+    limfreq: int | None = None,
+    limrang: int | None = None,
+    typegraph: str = "classical",
+    encoding: str = "utf-8",
+    colsep: str = ";",
+) -> dict:
+    """Prototypical analysis: words (paired with their ranks) — IRaMuTeQ Prototypical.
+
+    ``words_columns[i]`` and ``rank_columns[i]`` must be paired; ``limfreq`` and
+    ``limrang`` are literal R values (``None`` = NULL, as the dialog's "no limit").
+    """
+    from tabverges import Prototypical
+
+    if len(words_columns) != len(rank_columns):
+        raise ValueError("words_columns and rank_columns must have the same length")
+    if typegraph not in ("classical", "plan"):
+        raise ValueError("typegraph must be 'classical' or 'plan'")
+    tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
+    patches.sweep()
+
+    class HeadlessProto(Prototypical):
+        def doparametres(self, dlg=None):
+            self.ColSel1 = list(words_columns)
+            self.ColSel2 = list(rank_columns)
+            self.parametres.update(
+                {
+                    "limfreq": "NULL" if limfreq is None else int(limfreq),
+                    "limrang": "NULL" if limrang is None else int(limrang),
+                    "freqmin": int(freqmin),
+                    "typegraph": typegraph,
+                    "cloud": False,
+                }
+            )
+
+    parametres = {"type": "proto", "freqmin": int(freqmin), "typegraph": typegraph, "cloud": False}
+    obj = HeadlessProto(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    from . import results
+
+    return results.parse_proto(obj, msum)

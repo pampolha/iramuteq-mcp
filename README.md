@@ -40,6 +40,10 @@ beside the input file (or to an explicit `output_dir`).
 
 ## Tools
 
+Long R runs (ALCESTE, Labbé, Tgen profiles, similarity) return a `job_id`
+immediately; poll with `job_status` / `job_result`. Other tools return the
+parsed result directly.
+
 **Status & corpus**
 
 | Tool | Description |
@@ -47,16 +51,31 @@ beside the input file (or to an explicit `output_dir`).
 | `status` | IRaMuTeQ sources, config, R executable/version, missing R packages |
 | `corpus_validate` | Validate ALCESTE formatting (`****` headers, `-*` themes, `*variables`) |
 | `corpus_build` | Parse, clean, lemmatise and segment a `.txt` corpus (cached) |
+| `corpus_keys` | Current grammatical-category keys (`key.cfg`): active / supplementary / eliminated |
 | `corpus_stats` | Frequencies, active/supplementary forms, hapax, abstract |
 | `corpus_concordance` | KWIC concordance for a lemma, with UCI variables |
 
-**Text analyses** (long R runs return a `job_id`; poll `job_*`)
+**Text analyses**
 
 | Tool | Description |
 |---|---|
-| `corpus_alceste` | Reinert/ALCESTE descending hierarchical classification |
-| `corpus_lexico` | Specificities of forms/types by `variable_modality` (one variable) |
-| `corpus_similitude` | Similarity graph between active forms (27 indices, MST, layouts) |
+| `corpus_alceste` *(job)* | Reinert/ALCESTE descending hierarchical classification |
+| `corpus_lexico` *(job)* | Specificities of forms/types by one `*variable`'s modalities |
+| `corpus_labbe` *(job)* | Labbé lexical distance between the modalities of one variable |
+| `corpus_similitude` *(job)* | Similarity graph between active forms (27 indices, MST, layouts) |
+| `corpus_wordcloud` | Word cloud of active / supplementary / both forms, optional subset |
+| `corpus_class_cloud` | Word cloud of one ALCESTE class, weighted by frequency or chi² |
+| `corpus_tgen_spec` | Specificity of Tgen groups (usual segments) across modalities |
+| `corpus_tgen_prof` *(job)* | Tgen group profiles over the classes of an ALCESTE run |
+
+**Sub-corpora & classes**
+
+| Tool | Description |
+|---|---|
+| `corpus_split_by_variable` | One file per modality of a `*variable` (beside the input) |
+| `corpus_extract_themes` | Keep only the listed `-*` themes (beside the input) |
+| `corpus_extract_mods` | Extract texts carrying given `*modalities` (beside the input) |
+| `corpus_export_class` | Export one ALCESTE class as a new corpus file |
 
 **Matrix analyses** (`.csv`/`.xls`/`.ods`, individuals × variables)
 
@@ -64,9 +83,13 @@ beside the input file (or to an explicit `output_dir`).
 |---|---|
 | `matrix_open` | Load a table (cached), report columns/rows |
 | `matrix_frequencies` | Frequency table + barplot per column |
+| `matrix_freqmulti` | Frequencies of multi-valued columns |
 | `matrix_chi2` | Chi-square independence tests between two column sets |
-| `matrix_reinert` | Reinert classification on rows (job) |
-| `matrix_similitude` | Similarity graph on modalities (job) |
+| `matrix_mcnemar` | McNemar tests for paired categorical columns |
+| `matrix_splitvar` | One matrix per modality of a column (registered in the history) |
+| `matrix_proto` | Prototypical analysis: words characterised by frequency and mean rank |
+| `matrix_reinert` *(job)* | Reinert classification on rows |
+| `matrix_similitude` *(job)* | Similarity graph on modalities |
 
 **Jobs & results**
 
@@ -76,14 +99,27 @@ beside the input file (or to an explicit `output_dir`).
 | `analysis_read` | Parse any finished analysis directory (`Analyse.ira` + outputs) |
 | `analysis_list` | Corpora/matrices and analyses recorded in the IRaMuTeQ history |
 
-Every result carries the parsed tables (classes, profiles, chi², …) and the
-absolute paths of the artifacts IRaMuTeQ produced (PNG graphs, CSVs,
-`RData.RData`, `Analyse.ira`) so the client can open what the GUI would show.
+### Common options
+
+- **Analysis keys**: every corpus analysis accepts `active_keys` /
+  `supplementary_keys` (e.g. `["nom","ver","adj"]`, `["adv","pro_per"]`). They
+  override `key.cfg` for that run only.
+- **Modalities** (`corpus_lexico`, `corpus_labbe`): must belong to one
+  `*variable`; omitted → the first variable's modalities are used. Tgen
+  analyses accept modalities from any variables.
+- **Tgen file**: tab-separated, one group per line:
+  `group<TAB>lemma<TAB>lemma…`. Lemmas absent from the corpus are dropped and
+  reported in the result.
+- **Where files go**: analyses write their usual `<corpus>_<type>_<N>` (or
+  `<matrix>_<type>_<N>`) directories; the sub-corpus tools write beside their
+  input file, as the GUI does. Results list the artifact paths.
 
 ## Known quirks (faithful to the sources)
 
-- Lexico modalities must belong to a **single** `*variable` (e.g. `*sexe_h`
-  vs `*sexe_f`); the source rejects mixed variables.
+- Lexico and Labbé modalities must belong to a **single** `*variable` (e.g.
+  `*sexe_h` vs `*sexe_f`); the source rejects mixed variables.
+- `corpus_extract_themes` writes its output without a file extension — that
+  is the source's naming.
 - `matrix_reinert` needs ≥ 3 phase-1 classes (`nbcl_p1 >= 3`); `nbcl_p1 = 2`
   hits a dimension-drop bug in `chdquest.R::makepoids`.
 - A similarity run on modalities that never co-occur produces an empty graph
@@ -100,7 +136,7 @@ absolute paths of the artifacts IRaMuTeQ produced (PNG graphs, CSVs,
 ```bash
 uv sync
 uv run python tests/smoke.py      # bootstrap -> corpus -> stats -> alceste
-uv run python tests/test_flows.py # job API + all analyses end-to-end
+uv run python tests/test_flows.py # every tool end-to-end (jobs polled)
 uv run python tests/test_client.py# FastMCP tool registration + job cancel
 uv run iramuteq-mcp               # start the MCP server (stdio)
 ```

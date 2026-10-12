@@ -8,10 +8,13 @@ so they are cached by (path, mtime, language, encoding, options).
 
 from __future__ import annotations
 
+import configparser
+import contextlib
 import hashlib
 import json
 import logging
 import os
+import tempfile
 import threading
 
 from . import bootstrap, patches
@@ -125,6 +128,99 @@ def _prep_lemmas(corpus, lem: bool = True):
     return keys
 
 
+# ------------------------------------------------------------ key overrides
+
+KEY_VALUES = {"0": "eliminated", "1": "active", "2": "supplementary"}
+
+
+@contextlib.contextmanager
+def key_overrides(active_keys=None, supplementary_keys=None):
+    """Temporarily override grammatical-category keys (key.cfg) for one run.
+
+    AnalyseText reads ``ira.ConfigPath['key']`` at construction time, so we
+    point it at a temporary copy of key.cfg with the requested categories
+    flipped to 1 (active) or 2 (supplementary).  Analyses are serialised by
+    the job lock, so the swap cannot race with another run.
+    """
+    if not active_keys and not supplementary_keys:
+        yield
+        return
+    ira = bootstrap.get()
+    conf = configparser.RawConfigParser()
+    conf.read(ira.ConfigPath["key"], encoding="utf8")
+    section = conf.sections()[0]
+    known = set(conf.options(section))
+    wanted = {k: "1" for k in (active_keys or [])}
+    wanted.update({k: "2" for k in (supplementary_keys or [])})
+    unknown = sorted(set(wanted) - known)
+    if unknown:
+        raise ValueError(f"unknown analysis keys: {unknown}; available: {sorted(known)}")
+    for k, v in wanted.items():
+        conf.set(section, k, v)
+    fd, tmp = tempfile.mkstemp(prefix="key-", suffix=".cfg", dir=ira.TEMPDIR)
+    with os.fdopen(fd, "w", encoding="utf8") as f:
+        conf.write(f)
+    original = ira.ConfigPath["key"]
+    ira.ConfigPath["key"] = tmp
+    try:
+        yield
+    finally:
+        ira.ConfigPath["key"] = original
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def key_summary() -> dict:
+    """Current key.cfg values, as {category: 'active'|'supplementary'|'eliminated'}."""
+    from functions import DoConf
+
+    keys = DoConf(bootstrap.get().ConfigPath["key"]).getoptions()
+    keys.pop("type", None)
+    return {k: KEY_VALUES.get(str(v), str(v)) for k, v in keys.items()}
+
+
+# ------------------------------------------------------- modality resolution
+
+
+def resolve_listet(corpus, modalities=None, single_variable=True):
+    """Map user-given modalities to the ``*variable_modality`` forms IRaMuTeQ uses.
+
+    Without ``modalities`` the modalities of the first variable are used.  When
+    ``single_variable`` is set (Lexico, Labbé) all modalities must belong to one
+    variable, because those analyses compare UCI groups defined by it.
+    """
+    from functions import treat_var_mod
+
+    all_mods = list(corpus.make_etoiles())
+    if modalities:
+        wanted = {m.lstrip("*") for m in modalities}
+        listet = [m for m in all_mods if m.lstrip("*") in wanted]
+        missing = wanted - {m.lstrip("*") for m in listet}
+        if missing:
+            raise ValueError(
+                f"unknown modalities: {sorted(missing)}; "
+                f"available: {sorted(m.lstrip('*') for m in all_mods)}"
+            )
+    else:
+        by_var = treat_var_mod([m.lstrip("*") for m in all_mods])
+        if not by_var:
+            raise ValueError("corpus has no *variable_modality entries")
+        first_var = sorted(by_var)[0]
+        listet = [m for m in all_mods if m.lstrip("*") in set(by_var[first_var])]
+    if not listet:
+        raise ValueError("no modalities selected")
+    if single_variable:
+        used = treat_var_mod([m.lstrip("*") for m in listet])
+        if len(used) > 1:
+            raise ValueError(
+                "modalities must belong to a single variable (got %s); the analysis "
+                "groups UCIs by one variable" % sorted(used)
+            )
+    return sorted(listet)
+
+
 # ------------------------------------------------------------------- validate
 
 _CHECK_MESSAGES = {
@@ -196,13 +292,21 @@ def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
 # -------------------------------------------------------------------- analyses
 
 
-def run_stats(corpus_path: str, lang: str = "french", encoding: str = "utf8", lem: bool = True) -> dict:
+def run_stats(
+    corpus_path: str,
+    lang: str = "french",
+    encoding: str = "utf8",
+    lem: bool = True,
+    active_keys: list[str] | None = None,
+    supplementary_keys: list[str] | None = None,
+) -> dict:
     """Textual statistics (IRaMuTeQ Stat) — synchronous, fast."""
     from textstat import Stat
 
     corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
     patches.sweep()
-    obj = Stat(bootstrap.get(), corpus, {"type": "stat", "lem": lem}, dlg=False, lemdial=False)
+    with key_overrides(active_keys, supplementary_keys):
+        obj = Stat(bootstrap.get(), corpus, {"type": "stat", "lem": lem}, dlg=False, lemdial=False)
     from . import results
 
     return results.parse_stats(obj, csum)
@@ -215,6 +319,8 @@ def run_alceste(
     lem: bool = True,
     output_dir: str | None = None,
     options: dict | None = None,
+    active_keys: list[str] | None = None,
+    supplementary_keys: list[str] | None = None,
 ) -> dict:
     """Reinert/ALCESTE descending hierarchical classification (job payload)."""
     from functions import DoConf
@@ -234,7 +340,8 @@ def run_alceste(
     if output_dir:
         parametres["pathout"] = output_dir
 
-    obj = Reinert(ira, corpus, parametres=parametres, dlg=False, lemdial=False)
+    with key_overrides(active_keys, supplementary_keys):
+        obj = Reinert(ira, corpus, parametres=parametres, dlg=False, lemdial=False)
     from . import results
 
     return results.parse_alceste(obj, csum)
@@ -248,41 +355,18 @@ def run_lexico(
     lem: bool = True,
     output_dir: str | None = None,
     options: dict | None = None,
+    active_keys: list[str] | None = None,
+    supplementary_keys: list[str] | None = None,
 ) -> dict:
     """Specificities / "Comme Lexico" (IRaMuTeQ Lexico) — job payload.
 
-    ``modalities`` are ``*variable_modality`` entries and must all belong to
-    a single variable (the analysis compares UCI groups defined by it); when
-    omitted, the modalities of the first variable found are used.
+    ``modalities`` must all belong to one ``*variable`` (see resolve_listet).
     """
-    from functions import treat_var_mod
     from textaslexico import Lexico
 
     corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
     patches.sweep()
-
-    all_mods = list(corpus.make_etoiles())
-    if modalities:
-        wanted = set(modalities)
-        listet = [m for m in all_mods if m.lstrip("*") in wanted]
-        missing = wanted - {m.lstrip("*") for m in listet}
-        if missing:
-            raise ValueError(f"unknown modalities: {sorted(missing)}; available: {sorted(m.lstrip('*') for m in all_mods)}")
-    else:
-        by_var = treat_var_mod([m.lstrip("*") for m in all_mods])
-        if not by_var:
-            raise ValueError("corpus has no *variable_modality entries")
-        first_var = sorted(by_var)[0]
-        wanted_forms = set(by_var[first_var])
-        listet = [m for m in all_mods if m.lstrip("*") in wanted_forms]
-    if not listet:
-        raise ValueError("no modalities selected")
-    vars_used = treat_var_mod([m.lstrip("*") for m in listet])
-    if len(vars_used) > 1:
-        raise ValueError(
-            "modalities must belong to a single variable (got %s); "
-            "the Lexico comparison groups UCIs by one variable" % sorted(vars_used)
-        )
+    listet = resolve_listet(corpus, modalities, single_variable=True)
 
     parametres = {"type": "spec", "lem": lem}
     parametres.update({k: v for k, v in (options or {}).items() if v is not None})
@@ -299,7 +383,8 @@ def run_lexico(
             config.setdefault("clnb", 0)
             return config
 
-    obj = HeadlessLexico(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
+    with key_overrides(active_keys, supplementary_keys):
+        obj = HeadlessLexico(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
     from . import results
 
     return results.parse_lexico(obj, csum)
@@ -313,6 +398,8 @@ def run_similitude(
     lem: bool = True,
     output_dir: str | None = None,
     options: dict | None = None,
+    active_keys: list[str] | None = None,
+    supplementary_keys: list[str] | None = None,
 ) -> dict:
     """Similarity graph between active forms (IRaMuTeQ SimiTxt) — job payload."""
     from textsimi import SimiTxt, makesimiparam
@@ -327,7 +414,8 @@ def run_similitude(
     if output_dir:
         parametres["pathout"] = output_dir
 
-    obj = SimiTxt(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
+    with key_overrides(active_keys, supplementary_keys):
+        obj = SimiTxt(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
     from . import results
 
     return results.parse_similitude(obj, csum)

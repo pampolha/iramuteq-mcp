@@ -21,9 +21,18 @@ from typing import Annotated
 
 from fastmcp import FastMCP
 
-from .bridge import bootstrap, jobs, matrixops, results, textops
+from .bridge import bootstrap, jobs, matrixops, results, subcorpus, textextra, textops
 
 mcp = FastMCP("iramuteq")
+
+ActiveKeys = Annotated[
+    list[str] | None,
+    "Grammatical categories forced to active (1) for this run, e.g. ['nom','ver','adj']",
+]
+SupplementaryKeys = Annotated[
+    list[str] | None,
+    "Grammatical categories forced to supplementary (2) for this run, e.g. ['adv','pro_per']",
+]
 
 R_PACKAGES = [
     "ca",
@@ -135,9 +144,13 @@ async def corpus_stats(
     lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     lem: Annotated[bool, "Lemmatise (verbs to infinitive, nouns to masc. sing.)"] = True,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Textual statistics: frequencies, active/supplementary forms, hapax, abstract."""
-    return await asyncio.to_thread(textops.run_stats, path, lang, encoding, lem)
+    return await asyncio.to_thread(
+        textops.run_stats, path, lang, encoding, lem, active_keys, supplementary_keys
+    )
 
 
 @mcp.tool
@@ -160,11 +173,18 @@ async def corpus_concordance(
 # --------------------------------------------------------------- text analyses
 
 
-def _alceste_job(path, lang, encoding, lem, output_dir, options):
+def _alceste_job(path, lang, encoding, lem, output_dir, options, active_keys=None, supplementary_keys=None):
     def runner(job):
         job.phase = "corpus + CHD + profiles/AFC (R)"
         res = textops.run_alceste(
-            path, lang=lang, encoding=encoding, lem=lem, output_dir=output_dir, options=options
+            path,
+            lang=lang,
+            encoding=encoding,
+            lem=lem,
+            output_dir=output_dir,
+            options=options,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
         )
         job.phase = "done"
         return res
@@ -190,6 +210,8 @@ async def corpus_alceste(
     lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Start an ALCESTE/Reinert classification as a background job (returns job_id)."""
     options = {
@@ -202,7 +224,9 @@ async def corpus_alceste(
         "svdmethod": svdmethod,
         "mode.patate": 0,
     }
-    return _alceste_job(path, lang, encoding, lem, output_dir, options)
+    return _alceste_job(
+        path, lang, encoding, lem, output_dir, options, active_keys, supplementary_keys
+    )
 
 
 @mcp.tool
@@ -215,6 +239,8 @@ async def corpus_lexico(
     lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Start a 'Comme Lexico' specificities analysis as a background job (returns job_id)."""
     options = {"mineff": mineff, "indice": indice}
@@ -229,6 +255,8 @@ async def corpus_lexico(
             lem=lem,
             output_dir=output_dir,
             options=options,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
         )
 
     return _submit(
@@ -250,6 +278,8 @@ async def corpus_similitude(
     lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Start a similarity-graph analysis between active forms as a background job."""
     options = {"coeff": coeff, "layout": layout, "seuil": seuil, "arbremax": int(arbremax)}
@@ -274,6 +304,8 @@ async def corpus_similitude(
             lem=lem,
             output_dir=output_dir,
             options=options,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
         )
 
     return _submit(
@@ -354,6 +386,46 @@ async def matrix_chi2(
 
 
 @mcp.tool
+async def matrix_mcnemar(
+    path: Annotated[str, "Absolute path to the table"],
+    columns_a: Annotated[list[int], "0-based column indices (first variable set)"],
+    columns_b: Annotated[list[int], "0-based column indices (second variable set)"],
+    encoding: Annotated[str, "File encoding"] = "utf-8",
+    colsep: Annotated[str, "Field separator for csv"] = ";",
+) -> dict:
+    """McNemar tests for paired categorical columns (IRaMuTeQ McNemar)."""
+    return await asyncio.to_thread(
+        matrixops.run_mcnemar, path, columns_a, columns_b, None, encoding=encoding, colsep=colsep
+    )
+
+
+@mcp.tool
+async def matrix_freqmulti(
+    path: Annotated[str, "Absolute path to the table"],
+    columns: Annotated[list[int], "0-based columns whose cells may hold several values"],
+    encoding: Annotated[str, "File encoding"] = "utf-8",
+    colsep: Annotated[str, "Field separator for csv"] = ";",
+) -> dict:
+    """Frequencies of multi-valued columns (IRaMuTeQ FreqMultiple)."""
+    return await asyncio.to_thread(
+        matrixops.run_freqmulti, path, columns, encoding=encoding, colsep=colsep
+    )
+
+
+@mcp.tool
+async def matrix_splitvar(
+    path: Annotated[str, "Absolute path to the table"],
+    column: Annotated[int, "0-based column whose modalities split the table"],
+    encoding: Annotated[str, "File encoding"] = "utf-8",
+    colsep: Annotated[str, "Field separator for csv"] = ";",
+) -> dict:
+    """Split the table into one matrix per modality of a column (IRaMuTeQ SplitMatrixFromVar)."""
+    return await asyncio.to_thread(
+        matrixops.run_splitvar, path, column, encoding=encoding, colsep=colsep
+    )
+
+
+@mcp.tool
 async def matrix_reinert(
     path: Annotated[str, "Absolute path to the table"],
     active_columns: Annotated[list[int] | None, "Active column indices (omit if formatted)"] = None,
@@ -423,6 +495,254 @@ async def matrix_similitude(
         )
 
     return _submit("matrix_similitude", {"path": path, "columns": columns, "options": options}, runner)
+
+
+# ------------------------------------------------------- corpus utilities (A4)
+
+
+@mcp.tool
+async def corpus_keys() -> dict:
+    """Current grammatical-category keys (key.cfg): active, supplementary or eliminated."""
+    return await asyncio.to_thread(textops.key_summary)
+
+
+@mcp.tool
+async def corpus_split_by_variable(
+    path: Annotated[str, "Absolute path to the corpus"],
+    variable: Annotated[str, "Variable name without star, e.g. 'sexe'"],
+    encoding: Annotated[str, "File encoding"] = "utf8",
+) -> dict:
+    """Split the corpus into one file per modality of a *variable (written beside the input)."""
+    return await asyncio.to_thread(subcorpus.split_by_variable, path, variable, encoding)
+
+
+@mcp.tool
+async def corpus_extract_themes(
+    path: Annotated[str, "Absolute path to the corpus"],
+    themes: Annotated[list[str], "Themes to keep, e.g. ['travail'] (with or without '-*')"],
+    encoding: Annotated[str, "File encoding"] = "utf8",
+) -> dict:
+    """Keep only the listed -* themes of the corpus, written as one combined file."""
+    return await asyncio.to_thread(subcorpus.extract_themes, path, themes, encoding)
+
+
+@mcp.tool
+async def corpus_extract_mods(
+    path: Annotated[str, "Absolute path to the corpus"],
+    mods: Annotated[list[str], "Modalities to extract, e.g. ['*sexe_h']"],
+    onefile: Annotated[bool, "One combined file (True) or one file per modality (False)"] = False,
+    encoding: Annotated[str, "File encoding"] = "utf8",
+) -> dict:
+    """Extract the texts carrying the given *modalities (written beside the input)."""
+    return await asyncio.to_thread(subcorpus.extract_mods, path, mods, onefile, encoding)
+
+
+@mcp.tool
+async def corpus_export_class(
+    path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
+    analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
+    class_id: Annotated[int, "ALCESTE class number (1-based)"],
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
+    encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
+    lem: Annotated[bool, "Write lemmas instead of forms"] = False,
+    uci: Annotated[bool, "Export whole UCIs instead of UCEs"] = False,
+) -> dict:
+    """Export one ALCESTE class as a new corpus file (for follow-up analyses)."""
+    return await asyncio.to_thread(
+        subcorpus.export_class, path, analysis_dir, class_id, lang, encoding, lem, uci
+    )
+
+
+# --------------------------------------------- text analyses, part 2 (B2)
+
+
+@mcp.tool
+async def corpus_labbe(
+    path: Annotated[str, "Absolute path to the corpus"],
+    modalities: Annotated[list[str] | None, "Modalities of ONE variable (empty = first variable)"] = None,
+    mineff: Annotated[int, "Minimum frequency of analysed forms"] = 10,
+    indice: Annotated[str, "Specificity index: hypergeo or chi2"] = "hypergeo",
+    lem: Annotated[bool, "Lemmatise"] = True,
+    lang: Annotated[str, "Corpus language"] = "french",
+    encoding: Annotated[str, "File encoding"] = "utf8",
+    output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
+) -> dict:
+    """Start a Labbé lexical-distance analysis between modalities as a background job."""
+    params = {"path": path, "modalities": modalities, "mineff": mineff, "indice": indice}
+
+    def runner(job):
+        job.phase = "Labbé distances + clustering (R)"
+        return textextra.run_labbe(
+            path,
+            modalities=modalities,
+            mineff=mineff,
+            indice=indice,
+            lang=lang,
+            encoding=encoding,
+            lem=lem,
+            output_dir=output_dir,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
+        )
+
+    return _submit("corpus_labbe", params, runner)
+
+
+@mcp.tool
+async def corpus_wordcloud(
+    path: Annotated[str, "Absolute path to the corpus"],
+    mode: Annotated[int, "0 = active forms, 1 = supplementary forms, 2 = both"] = 0,
+    forms: Annotated[list[str] | None, "Optional subset of lemmas to draw (must be active/supplementary per mode)"] = None,
+    maxword: Annotated[int, "Maximum number of words drawn"] = 100,
+    width: Annotated[int, "Image width (px)"] = 800,
+    height: Annotated[int, "Image height (px)"] = 800,
+    mincex: Annotated[float, "Smallest relative font size"] = 0.3,
+    maxcex: Annotated[float, "Largest relative font size"] = 3.0,
+    col_text: Annotated[list[int] | None, "Text colour as [R,G,B]"] = None,
+    col_bg: Annotated[list[int] | None, "Background colour as [R,G,B]"] = None,
+    svg: Annotated[bool, "SVG instead of PNG"] = False,
+    lang: Annotated[str, "Corpus language"] = "french",
+    encoding: Annotated[str, "File encoding"] = "utf8",
+    lem: Annotated[bool, "Lemmatise"] = True,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
+) -> dict:
+    """Word cloud of the corpus forms (IRaMuTeQ WordCloud)."""
+    options = {
+        "maxword": maxword,
+        "width": width,
+        "height": height,
+        "mincex": mincex,
+        "maxcex": maxcex,
+        "col_text": col_text,
+        "col_bg": col_bg,
+        "svg": svg,
+    }
+    return await asyncio.to_thread(
+        textextra.run_wordcloud,
+        path,
+        mode,
+        forms,
+        options,
+        lang,
+        encoding,
+        lem,
+        None,
+        active_keys,
+        supplementary_keys,
+    )
+
+
+@mcp.tool
+async def corpus_class_cloud(
+    path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
+    analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
+    class_id: Annotated[int, "ALCESTE class number (1-based)"],
+    indice: Annotated[int, "Weight: 0 = class frequency, 1 = chi-square with the class"] = 0,
+    maxword: Annotated[int, "Maximum number of words drawn"] = 100,
+    width: Annotated[int, "Image width (px)"] = 800,
+    height: Annotated[int, "Image height (px)"] = 800,
+    svg: Annotated[bool, "SVG instead of PNG"] = False,
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
+    encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
+) -> dict:
+    """Word cloud of one ALCESTE class, sized by its profile (IRaMuTeQ ClusterCloud)."""
+    options = {"maxword": maxword, "width": width, "height": height, "svg": svg}
+    return await asyncio.to_thread(
+        textextra.run_class_cloud,
+        path,
+        analysis_dir,
+        class_id,
+        indice,
+        options,
+        lang,
+        encoding,
+    )
+
+
+@mcp.tool
+async def matrix_proto(
+    path: Annotated[str, "Absolute path to the table"],
+    words_columns: Annotated[list[int], "0-based columns holding the words"],
+    rank_columns: Annotated[list[int], "0-based columns holding the paired ranks (same length)"],
+    freqmin: Annotated[int, "Minimum frequency of a word"] = 2,
+    limfreq: Annotated[int | None, "Frequency limit for the plot (omit = no limit)"] = None,
+    limrang: Annotated[int | None, "Rank limit for the plot (omit = no limit)"] = None,
+    typegraph: Annotated[str, "'classical' or 'plan'"] = "classical",
+    encoding: Annotated[str, "File encoding"] = "utf-8",
+    colsep: Annotated[str, "Field separator for csv"] = ";",
+) -> dict:
+    """Prototypical analysis: words characterised by frequency and mean rank (IRaMuTeQ)."""
+    return await asyncio.to_thread(
+        matrixops.run_proto,
+        path,
+        words_columns,
+        rank_columns,
+        freqmin,
+        limfreq,
+        limrang,
+        typegraph,
+        encoding,
+        colsep,
+    )
+
+
+@mcp.tool
+async def corpus_tgen_spec(
+    path: Annotated[str, "Absolute path to the corpus"],
+    tgen_path: Annotated[str, "Tab-separated file: one line per group, 'group<TAB>lemma<TAB>lemma...'"],
+    modalities: Annotated[list[str] | None, "*variable_modality entries (empty = all)"] = None,
+    lang: Annotated[str, "Corpus language"] = "french",
+    encoding: Annotated[str, "File encoding"] = "utf8",
+    lem: Annotated[bool, "Lemmatise"] = True,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
+) -> dict:
+    """Specificity of Tgen groups (usual segments) across modalities (IRaMuTeQ TgenSpec)."""
+    return await asyncio.to_thread(
+        textextra.run_tgen_spec,
+        path,
+        tgen_path,
+        modalities,
+        lang,
+        encoding,
+        lem,
+        None,
+        active_keys,
+        supplementary_keys,
+    )
+
+
+@mcp.tool
+async def corpus_tgen_prof(
+    path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
+    analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
+    tgen_path: Annotated[str, "Tab-separated Tgen file: 'group<TAB>lemma<TAB>lemma...'"],
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
+    encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
+    lem: Annotated[bool, "Lemmatise"] = True,
+    active_keys: ActiveKeys = None,
+    supplementary_keys: SupplementaryKeys = None,
+) -> dict:
+    """Start a Tgen profile over the classes of an ALCESTE run as a background job."""
+    params = {"path": path, "analysis_dir": analysis_dir, "tgen_path": tgen_path}
+
+    def runner(job):
+        job.phase = "Tgen profiles (R)"
+        return textextra.run_tgen_prof(
+            analysis_dir,
+            path,
+            tgen_path,
+            lang=lang,
+            encoding=encoding,
+            lem=lem,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
+        )
+
+    return _submit("corpus_tgen_prof", params, runner)
 
 
 # ------------------------------------------------------------------------ jobs

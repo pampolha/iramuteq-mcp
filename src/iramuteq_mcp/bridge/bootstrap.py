@@ -36,6 +36,9 @@ class NoOpTree:
     def AddMatAnalyse(self, *args, **kwargs):
         pass
 
+    def OnItemAppend(self, *args, **kwargs):
+        pass
+
 
 class IraContext:
     """The ``ira``/parent object expected by the IRaMuTeQ analysis classes.

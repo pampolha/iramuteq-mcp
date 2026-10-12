@@ -329,3 +329,118 @@ def list_history() -> dict:
         item["analyses"] = [dict(a) for a in entry.get("analyses", [])]
         matrices.append(item)
     return {"corpora": corpora, "matrices": matrices, "jobs": ira.history.filein}
+
+
+# ------------------------------------------------- package A/B result parsers
+
+
+def parse_freqmulti(obj, matrix_summary: dict) -> dict:
+    outdir = obj.parametres.get("pathout")
+    rows = getattr(obj, "freq", []) or []
+    header, body = (rows[0], rows[1:]) if rows else ([], [])
+    return {
+        "analysis": "freqmulti",
+        "output_dir": outdir,
+        "matrix": matrix_summary,
+        "columns": header,
+        "frequencies": [dict(zip(header, r)) for r in body],
+        "artifacts": _artifacts(outdir),
+    }
+
+
+def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
+    outdir = obj.parametres.get("pathout")
+    created = {}
+    for mod in modalities:
+        found = sorted(
+            os.path.join(outdir, d, "csvfile.csv")
+            for d in os.listdir(outdir)
+            if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
+        ) if outdir and os.path.isdir(outdir) else []
+        created[mod] = found[-1] if found else None
+    return {
+        "analysis": "splitvar",
+        "output_dir": outdir,
+        "matrix": matrix_summary,
+        "modalities": created,
+        "artifacts": _artifacts(outdir),
+    }
+
+
+def parse_labbe(obj, corpus_summary: dict) -> dict:
+    outdir = obj.parametres.get("pathout")
+    j = lambda name: os.path.join(outdir, name) if outdir else ""
+    return {
+        "analysis": "labbe",
+        "output_dir": outdir,
+        "corpus": corpus_summary,
+        "parameters": {k: obj.parametres.get(k) for k in ("mineff", "indice", "typeformes", "clnb")},
+        "modalities": list(getattr(obj, "listet", [])),
+        "distances": _read_csv(j("listdist.csv"))[:200],
+        "distance_matrix": _read_csv(j("distmat.csv"))[:50],
+        "artifacts": _artifacts(outdir),
+    }
+
+
+def _count_lines(path: str) -> int:
+    if not os.path.isfile(path):
+        return 0
+    with open(path, encoding="utf8") as f:
+        return sum(1 for line in f if line.strip())
+
+
+def parse_wordcloud(obj, corpus_summary: dict, cluster: dict | None) -> dict:
+    outdir = obj.parametres.get("pathout")
+    graph = obj.parametres.get("graphout")
+    actives = list(getattr(obj, "actives", []) or [])
+    return {
+        "analysis": "clustercloud" if cluster else "wordcloud",
+        "output_dir": outdir,
+        "corpus": corpus_summary,
+        "cluster": cluster,
+        "graph": graph if graph and os.path.isfile(graph) else None,
+        "parameters": {k: obj.parametres.get(k) for k in ("mode", "maxword", "width", "height", "svg")},
+        "forms_count": len(actives),
+        "selected_count": _count_lines(os.path.join(outdir, "selected.csv")) if outdir else 0,
+        "forms_sample": actives[:50],
+        "artifacts": _artifacts(outdir),
+    }
+
+
+def parse_proto(obj, matrix_summary: dict) -> dict:
+    outdir = obj.parametres.get("pathout")
+    table = _read_csv(os.path.join(outdir, "table.csv"), sep="\t") if outdir else []
+    return {
+        "analysis": "proto",
+        "output_dir": outdir,
+        "matrix": matrix_summary,
+        "parameters": {k: obj.parametres.get(k) for k in ("freqmin", "limfreq", "limrang", "typegraph")},
+        "words": [{"word": r[0].strip('"'), "freq": r[1], "mean_rank": r[2]} for r in table if len(r) >= 3][:200],
+        "graph": _maybe(os.path.join(outdir, "proto.png")) if outdir else None,
+        "artifacts": _artifacts(outdir),
+    }
+
+
+def parse_tgen(obj, corpus_summary: dict, kind: str, report: dict) -> dict:
+    outdir = obj.parametres.get("pathout")
+    files = (
+        {"specificities": "tgenspec.csv", "effectives": "tgeneff.csv"}
+        if kind == "spec"
+        else {
+            "chi2_groups": "tgenchi2.csv",
+            "chi2_lemmas": "tgenlemchi2.csv",
+            "effectives_groups": "tgeneff.csv",
+            "effectives_lemmas": "tgenlemeff.csv",
+        }
+    )
+    tables = {
+        label: _read_csv(os.path.join(outdir, name), sep="\t")[:100] for label, name in files.items()
+    }
+    return {
+        "analysis": f"tgen_{kind}",
+        "output_dir": outdir,
+        "corpus": corpus_summary,
+        "tgen": report,
+        "tables": tables,
+        "artifacts": _artifacts(outdir),
+    }
