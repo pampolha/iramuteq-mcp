@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import Any
 
 from . import bootstrap, patches, textops
 
@@ -137,7 +138,7 @@ _CLOUD_DEFAULTS = {
 
 
 def _cloud_options(opts: dict | None) -> dict:
-    o = dict(_CLOUD_DEFAULTS)
+    o: dict[str, Any] = dict(_CLOUD_DEFAULTS)
     o.update({k: v for k, v in (opts or {}).items() if v is not None})
     o["col_text"] = _rgb(o["col_text"], _CLOUD_DEFAULTS["col_text"])
     o["col_bg"] = _rgb(o["col_bg"], _CLOUD_DEFAULTS["col_bg"])
@@ -275,20 +276,20 @@ def run_class_cloud(
 def _write_filtered_tgen(src: str, dest: str, corpus) -> dict:
     """Keep only lemmas present in the corpus; report the rest."""
     kept, dropped = {}, []
-    with open(src, "r", encoding="utf8") as f:
+    with open(src, encoding="utf8") as f:
         for line in f:
             parts = [p.strip() for p in line.rstrip("\r\n").split("\t") if p.strip()]
             if len(parts) < 2:
                 continue
             group, lems = parts[0], parts[1:]
-            present = [l for l in lems if l in corpus.lems]
-            dropped += [l for l in lems if l not in corpus.lems]
+            present = [lem for lem in lems if lem in corpus.lems]
+            dropped += [lem for lem in lems if lem not in corpus.lems]
             if present:
                 kept[group] = present
     if not kept:
         raise ValueError("none of the Tgen lemmas occur in the corpus")
     with open(dest, "w", encoding="utf8") as f:
-        f.write("\n".join("\t".join([g] + lems) for g, lems in kept.items()) + "\n")
+        f.write("\n".join("\t".join([g, *lems]) for g, lems in kept.items()) + "\n")
     return {"groups": sorted(kept), "dropped_lemmas": sorted(set(dropped))}
 
 

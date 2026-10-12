@@ -19,7 +19,8 @@ import os
 import subprocess
 from typing import Annotated
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
 
 from .bridge import bootstrap, jobs, matrixops, results, subcorpus, textextra, textops
 
@@ -53,11 +54,16 @@ R_PACKAGES = [
 ]
 
 
+_JOB_MANAGER: jobs.JobManager | None = None
+
+
 def _job_manager() -> jobs.JobManager:
-    ctx = bootstrap.get()
-    if not hasattr(ctx, "_job_manager"):
-        ctx._job_manager = jobs.JobManager(os.path.join(ctx.UserConfigPath, "mcp-jobs"))
-    return ctx._job_manager
+    """The process-wide job registry, created on first use under the IRaMuTeQ user dir."""
+    global _JOB_MANAGER
+    if _JOB_MANAGER is None:
+        ctx = bootstrap.get()
+        _JOB_MANAGER = jobs.JobManager(os.path.join(ctx.UserConfigPath, "mcp-jobs"))
+    return _JOB_MANAGER
 
 
 def _submit(kind: str, params: dict, runner) -> dict:
@@ -79,8 +85,7 @@ async def status() -> dict:
                 ctx.RPath,
                 "--slave",
                 "-e",
-                "cat(paste(c(%s), collapse=','))"
-                % ",".join('"%s"' % p for p in R_PACKAGES),
+                "cat(paste(c(%s), collapse=','))" % ",".join('"%s"' % p for p in R_PACKAGES),
             ],
             capture_output=True,
             text=True,
@@ -88,7 +93,7 @@ async def status() -> dict:
         )
         installed = set(proc.stdout.strip().split(",")) if proc.returncode == 0 else set()
         missing = [p for p in R_PACKAGES if p not in installed]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         missing = [f"cannot check R packages: {exc}"]
     r_version = ""
     try:
@@ -148,9 +153,7 @@ async def corpus_stats(
     supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Textual statistics: frequencies, active/supplementary forms, hapax, abstract."""
-    return await asyncio.to_thread(
-        textops.run_stats, path, lang, encoding, lem, active_keys, supplementary_keys
-    )
+    return await asyncio.to_thread(textops.run_stats, path, lang, encoding, lem, active_keys, supplementary_keys)
 
 
 @mcp.tool
@@ -163,6 +166,7 @@ async def corpus_concordance(
     encoding: Annotated[str, "File encoding"] = "utf8",
 ) -> dict:
     """Keyword-in-context concordance for a lemma, with UCI/variables of each hit."""
+
     def run():
         corpus, _ = textops.build_corpus(path, lang=lang, encoding=encoding)
         return textops.concordance(corpus, lem, limit=limit, width=width)
@@ -214,6 +218,10 @@ async def corpus_alceste(
     supplementary_keys: SupplementaryKeys = None,
 ) -> dict:
     """Start an ALCESTE/Reinert classification as a background job (returns job_id)."""
+    try:
+        textops.validate_max_actives(max_actives)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
     options = {
         "classif_mode": classif_mode,
         "nbcl_p1": nbcl_p1,
@@ -224,15 +232,16 @@ async def corpus_alceste(
         "svdmethod": svdmethod,
         "mode.patate": 0,
     }
-    return _alceste_job(
-        path, lang, encoding, lem, output_dir, options, active_keys, supplementary_keys
-    )
+    return _alceste_job(path, lang, encoding, lem, output_dir, options, active_keys, supplementary_keys)
 
 
 @mcp.tool
 async def corpus_lexico(
     path: Annotated[str, "Absolute path to the corpus"],
-    modalities: Annotated[list[str] | None, "variable_modality entries to compare; must share ONE variable (empty = first variable's modalities)"] = None,
+    modalities: Annotated[
+        list[str] | None,
+        "variable_modality entries to compare; must share ONE variable (empty = first variable's modalities)",
+    ] = None,
     mineff: Annotated[int, "Minimum frequency of analysed forms"] = 10,
     indice: Annotated[str, "Specificity index: hypergeo or chi2"] = "hypergeo",
     lem: Annotated[bool, "Lemmatise"] = True,
@@ -290,9 +299,6 @@ async def corpus_similitude(
         if forms:
             corpus, _ = textops.build_corpus(path, lang=lang, encoding=encoding)
             textops._prep_lemmas(corpus)
-            from functions import DoConf
-
-            keys = DoConf(bootstrap.get().ConfigPath["key"]).getoptions()
             actives, _ = corpus.make_actives_nb(20000, 1)
             pos = {lem_: i for i, lem_ in enumerate(actives)}
             selected = sorted(pos[f] for f in forms if f in pos)
@@ -407,9 +413,7 @@ async def matrix_freqmulti(
     colsep: Annotated[str, "Field separator for csv"] = ";",
 ) -> dict:
     """Frequencies of multi-valued columns (IRaMuTeQ FreqMultiple)."""
-    return await asyncio.to_thread(
-        matrixops.run_freqmulti, path, columns, encoding=encoding, colsep=colsep
-    )
+    return await asyncio.to_thread(matrixops.run_freqmulti, path, columns, encoding=encoding, colsep=colsep)
 
 
 @mcp.tool
@@ -420,9 +424,7 @@ async def matrix_splitvar(
     colsep: Annotated[str, "Field separator for csv"] = ";",
 ) -> dict:
     """Split the table into one matrix per modality of a column (IRaMuTeQ SplitMatrixFromVar)."""
-    return await asyncio.to_thread(
-        matrixops.run_splitvar, path, column, encoding=encoding, colsep=colsep
-    )
+    return await asyncio.to_thread(matrixops.run_splitvar, path, column, encoding=encoding, colsep=colsep)
 
 
 @mcp.tool
@@ -548,9 +550,7 @@ async def corpus_export_class(
     uci: Annotated[bool, "Export whole UCIs instead of UCEs"] = False,
 ) -> dict:
     """Export one ALCESTE class as a new corpus file (for follow-up analyses)."""
-    return await asyncio.to_thread(
-        subcorpus.export_class, path, analysis_dir, class_id, lang, encoding, lem, uci
-    )
+    return await asyncio.to_thread(subcorpus.export_class, path, analysis_dir, class_id, lang, encoding, lem, uci)
 
 
 # --------------------------------------------- text analyses, part 2 (B2)
@@ -594,7 +594,9 @@ async def corpus_labbe(
 async def corpus_wordcloud(
     path: Annotated[str, "Absolute path to the corpus"],
     mode: Annotated[int, "0 = active forms, 1 = supplementary forms, 2 = both"] = 0,
-    forms: Annotated[list[str] | None, "Optional subset of lemmas to draw (must be active/supplementary per mode)"] = None,
+    forms: Annotated[
+        list[str] | None, "Optional subset of lemmas to draw (must be active/supplementary per mode)"
+    ] = None,
     maxword: Annotated[int, "Maximum number of words drawn"] = 100,
     width: Annotated[int, "Image width (px)"] = 800,
     height: Annotated[int, "Image height (px)"] = 800,
@@ -748,37 +750,66 @@ async def corpus_tgen_prof(
 # ------------------------------------------------------------------------ jobs
 
 
+def _unknown_job(job_id: str) -> ToolError:
+    return ToolError(f"unknown job id: {job_id}. Use job_list to see known jobs.")
+
+
 @mcp.tool
-async def job_status(job_id: Annotated[str, "Job id returned by a *_run tool"]) -> dict:
-    """Poll a background analysis job (status, phase, elapsed, output dir)."""
+async def job_status(
+    job_id: Annotated[str, "Job id returned by a *_run tool"],
+    ctx: Context | None = None,
+) -> dict:
+    """Poll a background analysis job: status, phase, elapsed time, output dir."""
     job = _job_manager().get(job_id)
     if job is None:
-        return {"error": f"unknown job {job_id}", "jobs": _job_manager().list()}
+        raise _unknown_job(job_id)
+    if ctx is not None and job.status in jobs.ACTIVE:
+        # sent only when the client supplied a progress token
+        await ctx.report_progress(progress=job.elapsed, message=job.phase or job.status)
     return job.summary()
 
 
 @mcp.tool
 async def job_result(job_id: Annotated[str, "Job id returned by a *_run tool"]) -> dict:
-    """Fetch the parsed result of a finished job (or its error)."""
-    try:
-        return await asyncio.to_thread(_job_manager().result, job_id)
-    except KeyError:
-        return {"error": f"unknown job {job_id}"}
+    """Fetch a job: its status, and the parsed result once it is done."""
+    res = await asyncio.to_thread(_job_manager().result, job_id)
+    if res is None:
+        raise _unknown_job(job_id)
+    return res
 
 
 @mcp.tool
 async def job_cancel(job_id: Annotated[str, "Job id returned by a *_run tool"]) -> dict:
-    """Cancel a running job (kills its R process)."""
-    try:
-        return await asyncio.to_thread(_job_manager().cancel, job_id)
-    except KeyError:
-        return {"error": f"unknown job {job_id}"}
+    """Cancel a job; a running R process is terminated. Finished jobs are returned unchanged."""
+    res = await asyncio.to_thread(_job_manager().cancel, job_id)
+    if res is None:
+        raise _unknown_job(job_id)
+    return res
 
 
 @mcp.tool
 async def job_list() -> dict:
-    """List all known jobs (including jobs from previous server runs)."""
+    """List all known jobs, including those from previous server runs."""
     return {"jobs": _job_manager().list()}
+
+
+@mcp.tool
+async def job_prune(
+    job_ids: Annotated[list[str] | None, "Specific finished jobs to delete (omit for all matching)"] = None,
+    statuses: Annotated[
+        list[str] | None,
+        "Statuses to prune: done, error, cancelled, interrupted (default: all finished)",
+    ] = None,
+    older_than_hours: Annotated[float | None, "Only prune jobs that ended at least this long ago"] = None,
+) -> dict:
+    """Delete finished job records and their stored results. Running jobs are never pruned."""
+    allowed = set(jobs.FINISHED)
+    chosen = list(statuses) if statuses else list(jobs.FINISHED)
+    bad = sorted(set(chosen) - allowed)
+    if bad:
+        raise ToolError(f"unknown statuses {bad}; choose from {sorted(allowed)}")
+    older = None if older_than_hours is None else older_than_hours * 3600
+    return await asyncio.to_thread(_job_manager().prune, job_ids, chosen, older)
 
 
 # ------------------------------------------------------------------- reporting

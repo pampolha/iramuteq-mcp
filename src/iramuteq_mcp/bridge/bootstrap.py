@@ -24,7 +24,7 @@ log = logging.getLogger("iramuteq_mcp")
 
 DEFAULT_IRAMUTEQ_PATH = "/home/pampolha/Tools/iramuteq-0.8alpha7-sources"
 
-_ctx: "IraContext | None" = None
+_ctx: IraContext | None = None
 
 
 class NoOpTree:
@@ -57,6 +57,8 @@ class IraContext:
             ConstructDicoPath,
             ConstructGlobalPath,
             PathOut,
+        )
+        from chemins import (
             RscriptsPath as RSCRIPT_FILES,
         )
 
@@ -93,8 +95,8 @@ class IraContext:
 
         self.RPath = self._discover_r()
         self.history = self._open_history()
-        self.lexique = {}
-        self.expressions = {}
+        self.lexique: dict[str, list[str]] = {}
+        self.expressions: dict[str, list[str]] = {}
         self._lexicon_langs: set[str] = set()
         self.tree = NoOpTree()
         self.filename = ""
@@ -131,10 +133,7 @@ class IraContext:
             with open(self.ConfigPath["path"], "w", encoding="utf8") as f:
                 path_path.write(f)
             return best
-        raise RuntimeError(
-            "R executable not found; install R or set [PATHS] rpath in %s"
-            % self.ConfigPath["path"]
-        )
+        raise RuntimeError("R executable not found; install R or set [PATHS] rpath in %s" % self.ConfigPath["path"])
 
     def _open_history(self):
         from functions import History
@@ -167,9 +166,7 @@ def init(iramuteq_path: str | None = None) -> IraContext:
 
     wxstub.install()
 
-    root = os.path.abspath(
-        iramuteq_path or os.environ.get("IRAMUTEQ_PATH", DEFAULT_IRAMUTEQ_PATH)
-    )
+    root = os.path.abspath(iramuteq_path or os.environ.get("IRAMUTEQ_PATH", DEFAULT_IRAMUTEQ_PATH))
     if not os.path.isfile(os.path.join(root, "iramuteq.py")):
         raise RuntimeError(f"IRaMuTeQ sources not found at {root} (set IRAMUTEQ_PATH)")
 

@@ -16,7 +16,7 @@ log = logging.getLogger("iramuteq_mcp")
 
 
 def _artifacts(dirpath: str) -> dict:
-    out = {}
+    out: dict[str, str] = {}
     if not dirpath or not os.path.isdir(dirpath):
         return out
     for name in sorted(os.listdir(dirpath)):
@@ -29,7 +29,7 @@ def _artifacts(dirpath: str) -> dict:
 def _read_csv(path: str, sep: str = ";") -> list[list[str]]:
     if not os.path.isfile(path):
         return []
-    with open(path, "r", encoding="utf8", errors="replace") as f:
+    with open(path, encoding="utf8", errors="replace") as f:
         return [row for row in csv.reader(f, delimiter=sep)]
 
 
@@ -42,9 +42,7 @@ def parse_stats(obj, corpus_summary: dict) -> dict:
 
     def summarize(d, top=50):
         rows = sorted(d.values(), key=lambda v: v[1], reverse=True) if d else []
-        return [
-            {"form": v[0], "freq": v[1], "gram": v[2] if len(v) > 2 else ""} for v in rows[:top]
-        ]
+        return [{"form": v[0], "freq": v[1], "gram": v[2] if len(v) > 2 else ""} for v in rows[:top]]
 
     glob = res.get("glob", "")
     if isinstance(glob, list):
@@ -87,9 +85,9 @@ def _read_profiles(path: str, top: int = 30) -> dict:
     for cluster, rows in raw.items():
         head = rows[0] if rows else []
         body = []
-        for row in rows[1:top + 1]:
+        for row in rows[1 : top + 1]:
             if len(row) >= 8:
-                body.append(dict(zip(_PROFILE_FIELDS, row)))
+                body.append(dict(zip(_PROFILE_FIELDS, row, strict=False)))
         out[str(cluster)] = {
             "cluster_header": [str(v) for v in head],
             "top_forms": body,
@@ -165,8 +163,11 @@ def parse_alceste(obj, corpus_summary: dict) -> dict:
 
 def parse_lexico(obj, corpus_summary: dict) -> dict:
     outdir = obj.parametres.get("pathout")
+
     # Lexico writes via StatTxtPathOut-style absolute names (with .csv)
-    j = lambda name: os.path.join(outdir, name) if outdir else ""
+    def j(name: str) -> str:
+        return os.path.join(outdir, name) if outdir else ""
+
     return {
         "analysis": "lexico",
         "output_dir": outdir,
@@ -198,7 +199,9 @@ def parse_similitude(obj, corpus_summary: dict) -> dict:
         "analysis": "similitude",
         "output_dir": outdir,
         "corpus": corpus_summary,
-        "parameters": {k: obj.parametres.get(k) for k in ("coeff", "layout", "seuil", "arbremax", "type_graph", "time")},
+        "parameters": {
+            k: obj.parametres.get(k) for k in ("coeff", "layout", "seuil", "arbremax", "type_graph", "time")
+        },
         "graphs": [[str(v) for v in row] for row in graphs],
         "artifacts": _artifacts(outdir),
     }
@@ -215,7 +218,7 @@ def parse_frequencies(obj, matrix_summary: dict) -> dict:
     """Parse the R outframe of Frequences (groups separated by '***' marker rows)."""
     rows = _read_tsv(getattr(obj, "outframe", ""))
     titles = list(getattr(obj, "listtitre", []))
-    tables: list[dict] = []
+    tables: list[list[list[str]]] = []
     current: list[list[str]] = []
     for row in rows[1:] if rows else []:
         if row and row[0] == "***":
@@ -343,7 +346,7 @@ def parse_freqmulti(obj, matrix_summary: dict) -> dict:
         "output_dir": outdir,
         "matrix": matrix_summary,
         "columns": header,
-        "frequencies": [dict(zip(header, r)) for r in body],
+        "frequencies": [dict(zip(header, r, strict=False)) for r in body],
         "artifacts": _artifacts(outdir),
     }
 
@@ -352,11 +355,15 @@ def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
     outdir = obj.parametres.get("pathout")
     created = {}
     for mod in modalities:
-        found = sorted(
-            os.path.join(outdir, d, "csvfile.csv")
-            for d in os.listdir(outdir)
-            if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
-        ) if outdir and os.path.isdir(outdir) else []
+        found = (
+            sorted(
+                os.path.join(outdir, d, "csvfile.csv")
+                for d in os.listdir(outdir)
+                if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
+            )
+            if outdir and os.path.isdir(outdir)
+            else []
+        )
         created[mod] = found[-1] if found else None
     return {
         "analysis": "splitvar",
@@ -369,7 +376,10 @@ def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
 
 def parse_labbe(obj, corpus_summary: dict) -> dict:
     outdir = obj.parametres.get("pathout")
-    j = lambda name: os.path.join(outdir, name) if outdir else ""
+
+    def j(name: str) -> str:
+        return os.path.join(outdir, name) if outdir else ""
+
     return {
         "analysis": "labbe",
         "output_dir": outdir,
@@ -433,9 +443,7 @@ def parse_tgen(obj, corpus_summary: dict, kind: str, report: dict) -> dict:
             "effectives_lemmas": "tgenlemeff.csv",
         }
     )
-    tables = {
-        label: _read_csv(os.path.join(outdir, name), sep="\t")[:100] for label, name in files.items()
-    }
+    tables = {label: _read_csv(os.path.join(outdir, name), sep="\t")[:100] for label, name in files.items()}
     return {
         "analysis": f"tgen_{kind}",
         "output_dir": outdir,

@@ -154,9 +154,9 @@ def sweep() -> None:
         if mod.__name__ == "corpus" and not isinstance(vars(mod).get("sqlite3"), _SqliteShim):
             import sqlite3
 
-            mod.sqlite3 = _SqliteShim(sqlite3)
+            setattr(mod, "sqlite3", _SqliteShim(sqlite3))  # noqa: B010 - dynamic module patch
         # AnalyseMatrix's success path calls OpenAnalyse (GUI result viewer)
         oa = sys.modules.get("openanalyse")
         if oa is not None and mod.__name__ not in ("openanalyse", "iramuteq_mcp.bridge.patches"):
             if vars(mod).get("OpenAnalyse") is oa.OpenAnalyse:
-                setattr(mod, "OpenAnalyse", _noop_openanalyse)
+                setattr(mod, "OpenAnalyse", _noop_openanalyse)  # noqa: B010 - dynamic module patch

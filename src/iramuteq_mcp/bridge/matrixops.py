@@ -223,7 +223,10 @@ def run_mcnemar(
     tableau, msum = _get_matrix(matrix_path, **open_kwargs)
     patches.sweep()
 
-    opts = {**{k: True for k in _CHI_OPTIONS}, **{k: bool(v) for k, v in (options or {}).items() if k in _CHI_OPTIONS}}
+    opts = {
+        **{k: True for k in _CHI_OPTIONS},
+        **{k: bool(v) for k, v in (options or {}).items() if k in _CHI_OPTIONS},
+    }
 
     class HeadlessMcNemar(McNemar):
         def doparametres(self, dlg=None):
@@ -265,13 +268,13 @@ def run_matrix_reinert(
         active = list(active_columns)
         # IRaMuTeQ's profile stage always reads a supplementary table; default
         # to the remaining columns (illustrative variables) so it is never empty
-        sup = list(supplementary_columns) if supplementary_columns is not None else [
-            c for c in range(ncol) if c not in active
-        ]
+        sup = (
+            list(supplementary_columns)
+            if supplementary_columns is not None
+            else [c for c in range(ncol) if c not in active]
+        )
         if not sup:
-            raise ValueError(
-                "no supplementary columns left; pass supplementary_columns explicitly"
-            )
+            raise ValueError("no supplementary columns left; pass supplementary_columns explicitly")
         parametres["listact"] = active
         parametres["listsup"] = sup
     if output_dir:

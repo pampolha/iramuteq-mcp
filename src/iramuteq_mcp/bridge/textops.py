@@ -128,6 +128,19 @@ def _prep_lemmas(corpus, lem: bool = True):
     return keys
 
 
+# ------------------------------------------------------------ input bounds
+
+MAX_ACTIVES_RANGE = (50, 50000)
+
+
+def validate_max_actives(value: int) -> int:
+    """Check the number of active forms an ALCESTE run may analyse (memory bound)."""
+    lo, hi = MAX_ACTIVES_RANGE
+    if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+        raise ValueError(f"max_actives must be an integer between {lo} and {hi}, got {value!r}")
+    return value
+
+
 # ------------------------------------------------------------ key overrides
 
 KEY_VALUES = {"0": "eliminated", "1": "active", "2": "supplementary"}
@@ -200,8 +213,7 @@ def resolve_listet(corpus, modalities=None, single_variable=True):
         missing = wanted - {m.lstrip("*") for m in listet}
         if missing:
             raise ValueError(
-                f"unknown modalities: {sorted(missing)}; "
-                f"available: {sorted(m.lstrip('*') for m in all_mods)}"
+                f"unknown modalities: {sorted(missing)}; available: {sorted(m.lstrip('*') for m in all_mods)}"
             )
     else:
         by_var = treat_var_mod([m.lstrip("*") for m in all_mods])
@@ -237,7 +249,7 @@ def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 
 
     path = os.path.abspath(corpus_path)
     errors = []
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         for lnb, line in enumerate(f, start=1):
             line = line.rstrip("\n").rstrip("\r")
             if not line.strip():
@@ -245,7 +257,12 @@ def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 
             res = checkline(line, lnb)
             if not res[0]:
                 errors.append(
-                    {"line": lnb, "code": res[1], "message": _CHECK_MESSAGES.get(res[1], "invalid"), "text": line[:120]}
+                    {
+                        "line": lnb,
+                        "code": res[1],
+                        "message": _CHECK_MESSAGES.get(res[1], "invalid"),
+                        "text": line[:120],
+                    }
                 )
                 if len(errors) >= max_errors:
                     break
@@ -261,7 +278,7 @@ def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
         _prep_lemmas(corpus)
     if lem not in corpus.lems:
         return {"lem": lem, "found": False, "hits": [], "hint": "lemma not in corpus (try corpus_stats)"}
-    hits = []
+    hits: list[dict[str, object]] = []
     rows = list(corpus.getlemconcorde(lem))
     for uce_id, text in rows:
         uci = corpus.getucefromid(uce_id)
@@ -335,6 +352,7 @@ def run_alceste(
     parametres = DoConf(ira.ConfigPath["reinert"]).getoptions("ALCESTE")
     parametres.pop("type", None)
     parametres.update({k: v for k, v in (options or {}).items() if v is not None})
+    parametres["max_actives"] = validate_max_actives(parametres.get("max_actives", 20000))
     parametres["type"] = "alceste"
     parametres["lem"] = lem
     if output_dir:

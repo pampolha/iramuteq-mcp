@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 
-from . import bootstrap, textops
+from . import textops
 
 
 def _listing(directory: str) -> dict[str, str]:
@@ -35,7 +35,7 @@ def _created(directory: str, before: dict[str, str]) -> list[str]:
 
 def _header_tokens(src: str) -> set[str]:
     """All starred tokens found on ``****`` header lines."""
-    tokens = set()
+    tokens: set[str] = set()
     with open(src, encoding="utf8", errors="replace") as f:
         for line in f:
             if line.startswith("**** "):
@@ -65,9 +65,7 @@ def split_by_variable(path: str, variable: str, encoding: str = "utf8") -> dict:
     SplitFromVar({"filein": src, "var": var, "encodein": encoding, "encodeout": "utf8"})
     # the splitter rewrites <var>_<mod>.txt for each modality present
     expected = {
-        os.path.join(base, t.lstrip("*") + ".txt")
-        for t in _header_tokens(src)
-        if t.startswith("*" + bare + "_")
+        os.path.join(base, t.lstrip("*") + ".txt") for t in _header_tokens(src) if t.startswith("*" + bare + "_")
     }
     files = sorted(set(_created(base, before)) | {p for p in expected if os.path.isfile(p)})
     return {"input": src, "variable": bare, "created": files, "count": len(files)}
@@ -120,9 +118,7 @@ def extract_mods(
     if onefile:
         expected = {os.path.join(base, "_".join(m.lstrip("*") for m in starred) + ".txt")}
     else:
-        expected = {
-            os.path.join(base, t.lstrip("*") + ".txt") for t in _header_tokens(src) if t in starred
-        }
+        expected = {os.path.join(base, t.lstrip("*") + ".txt") for t in _header_tokens(src) if t in starred}
     files = sorted(set(_created(base, before)) | {p for p in expected if os.path.isfile(p)})
     return {"input": src, "mods": starred, "onefile": onefile, "created": files}
 

@@ -125,4 +125,4 @@ def install() -> None:
     if not any(isinstance(f, _Finder) for f in sys.meta_path):
         sys.meta_path.insert(0, _Finder())
     wx = importlib.import_module("wx")
-    wx.__iramuteq_wxstub__ = True
+    setattr(wx, _STUB_MARK, True)
