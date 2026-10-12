@@ -1,10 +1,6 @@
-# Python-generated files
+.venv/
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
+*.pyc
+tests/fixtures/*_corpus_*/
+tests/fixtures/*_matrix_*/
+.opencode/

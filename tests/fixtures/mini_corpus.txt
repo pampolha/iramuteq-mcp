@@ -1,0 +1,59 @@
+**** *sexe_h *age_20
+-*travail
+Le travail dans l'entreprise est important pour le développement des compétences.
+Les salariés travaillent chaque jour pour améliorer leur travail professionnel.
+Le management des équipes demande de l'écoute et de la communication.
+-*loisirs
+Le sport et la lecture occupent les soirées après le travail.
+La musique et le cinéma sont des loisirs appréciés des étudiants.
+Le jardinage apporte du calme et du plaisir le week-end.
+
+**** *sexe_f *age_30
+-*travail
+La communication dans l'entreprise est essentielle au travail collectif.
+Les femmes travaillent souvent plus pour développer leurs compétences.
+Le management moderne valorise l'écoute et la coopération entre collègues.
+-*loisirs
+La lecture et la musique accompagnent les longues soirées d'hiver.
+Le sport en club développe l'esprit d'équipe et la confiance.
+Le jardinage et la cuisine sont des loisirs créatifs appréciés.
+
+**** *sexe_h *age_40
+-*travail
+Le développement professionnel demande de la formation continue.
+Le management des projets exige organisation et communication.
+Les ingénieurs travaillent sur des problèmes complexes chaque jour.
+-*loisirs
+Le cinéma et la lecture nourrissent l'imagination des grands et des petits.
+La musique classique apporte sérénité et concentration.
+Le sport régulier maintient la santé et le moral.
+
+**** *sexe_f *age_20
+-*travail
+La formation et le développement des compétences ouvrent des portes.
+Le travail en équipe renforce la communication et l'écoute.
+Les étudiantes travaillent avec passion pour leur avenir professionnel.
+-*loisirs
+La lecture passionnante occupe une grande partie des loisirs.
+Le cinéma d'auteur et la musique contemporaine inspirent les jeunes.
+Le jardinage urbain se développe dans les grandes villes.
+
+**** *sexe_h *age_30
+-*travail
+L'entreprise moderne valorise la communication et le management participatif.
+Le travail collaboratif développe la confiance entre les collègues.
+La formation professionnelle accompagne le développement des salariés.
+-*loisirs
+Le sport collectif comme le football rassemble les amateurs.
+La lecture reste un loisir incontournable pour beaucoup.
+Le cinéma et les séries occupent les soirées d'été.
+
+**** *sexe_f *age_40
+-*travail
+Le management des talents est au cœur des stratégies d'entreprise.
+La communication interne facilite le travail des équipes.
+Le développement durable transforme les pratiques professionnelles.
+-*loisirs
+La musique live et les concerts animent les week-ends.
+Le jardinage partagé crée du lien social dans les quartiers.
+La lecture et l'écriture accompagnent toute une vie.
