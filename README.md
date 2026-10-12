@@ -134,12 +134,23 @@ parsed result directly.
 ## Development
 
 ```bash
-uv sync
-uv run python tests/smoke.py      # bootstrap -> corpus -> stats -> alceste
-uv run python tests/test_flows.py # every tool end-to-end (jobs polled)
-uv run python tests/test_client.py# FastMCP tool registration + job cancel
-uv run iramuteq-mcp               # start the MCP server (stdio)
+uv sync --group dev                 # install the project plus pytest, ruff, mypy
+uv run pytest                       # full suite
+uv run pytest -m "not requires_r"   # unit tests only (job lifecycle, bounds, validation)
+uv run pytest -m "not slow"         # skip the mid-run cancellation test
+uv run ruff check src tests         # lint
+uv run ruff format src tests        # format
+uv run mypy src/iramuteq_mcp        # type check
+uv run iramuteq-mcp                 # start the MCP server (stdio)
 ```
+
+Tests that need R and the IRaMuTeQ packages are marked `requires_r`. When R or
+a package is missing they are **skipped** with the reason, never failed. The
+fixtures are generated or copied into temporary directories, so running the
+tests never writes into the repository.
+
+Job records are kept until they are cancelled or pruned explicitly
+(`job_prune`); the server does not discard finished results on its own.
 
 ## License
 
