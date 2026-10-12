@@ -4,39 +4,17 @@ An [MCP](https://modelcontextprotocol.io) server for [IRaMuTeQ](http://www.iramu
 the French R-based text-mining and corpus analysis suite (Pierre Ratinaud) —
 built with [FastMCP](https://gofastmcp.com).
 
-This server is a **substitute interface to the program itself**: it does not
-reimplement any analysis. It imports the IRaMuTeQ 0.8 sources as a library,
-drives the same Python entry points the wxPython GUI calls, runs the same
-generated R scripts, and parses the same output files with the source's own
-readers. The GUI layer is neutralised (wx is stubbed, dialogs are bypassed by
-injecting the options they would have collected).
+This server imports the IRaMuTeQ 0.8 sources as a library,
+drives the Python entry points the wxPython GUI calls,
+runs the generated R scripts, and parses the same output files with the source's own readers.
+The GUI layer is neutralised.
 
 ## Requirements
 
 - Python ≥ 3.13 (`uv sync`)
 - R with the IRaMuTeQ packages (`ca`, `gee`, `ape`, `igraph`, `proxy`,
   `wordcloud`, `irlba`, `textometry`, `sna`, `network`, `intergraph`, `rgl`,
-  `cluster`, `MASS`, `Matrix`) — the `status` tool reports what is missing
-- The IRaMuTeQ 0.8 source tree, pointed at by `IRAMUTEQ_PATH`
-  (default `/home/pampolha/Tools/iramuteq-0.8alpha7-sources`)
-
-User config is seeded in `~/.iramuteq-<version>/` (shared with the desktop
-app if installed). Analyses write their usual `<corpus>_<type>_<N>` directories
-beside the input file (or to an explicit `output_dir`).
-
-## How it maps onto the IRaMuTeQ sources
-
-| Layer | Source module | Bridge code |
-|---|---|---|
-| Corpus parse/clean/lemmatise/segment | `corpus.py::BuildFromAlceste`, `Corpus` | `bridge/textops.py` |
-| ALCESTE classification | `textreinert.py::Reinert` → `PrintRScript.RchdTxt/ReinertTxtProf` → `Rscripts/CHD.R`, `chdtxt.R` | `bridge/textops.py` |
-| Textual statistics | `textstat.py::Stat` | `bridge/textops.py` |
-| Specificities ("Comme Lexico") | `textaslexico.py::Lexico` | `bridge/textops.py` |
-| Similarity graphs (text) | `textsimi.py::SimiTxt` → `Rscripts/simi.R` | `bridge/textops.py` |
-| Matrix analyses | `tableau.py::Tableau`, `tabfrequence/tabchi2/tabchdalc/tabsimi` | `bridge/matrixops.py` |
-| Output parsing | `functions.ReadProfileAsDico`, `Corpus.make_ucecl_from_R`, `DoConf` | `bridge/results.py` |
-| R execution | `functions.exec_rcode` (`R --slave --vanilla -f <wrapper>`) | tracked by `bridge/patches.py` |
-| Headless glue | — | `bridge/wxstub.py`, `bridge/bootstrap.py`, `bridge/patches.py`, `bridge/jobs.py` |
+  `cluster`, `MASS`, `Matrix`)
 
 ## Tools
 
@@ -105,7 +83,7 @@ parsed result directly.
   `supplementary_keys` (e.g. `["nom","ver","adj"]`, `["adv","pro_per"]`). They
   override `key.cfg` for that run only.
 - **Modalities** (`corpus_lexico`, `corpus_labbe`): must belong to one
-  `*variable`; omitted → the first variable's modalities are used. Tgen
+  `*variable`; if omitted, the first variable's modalities are used. Tgen
   analyses accept modalities from any variables.
 - **Tgen file**: tab-separated, one group per line:
   `group<TAB>lemma<TAB>lemma…`. Lemmas absent from the corpus are dropped and
@@ -114,7 +92,7 @@ parsed result directly.
   `<matrix>_<type>_<N>`) directories; the sub-corpus tools write beside their
   input file, as the GUI does. Results list the artifact paths.
 
-## Known quirks (faithful to the sources)
+## Known issues
 
 - Lexico and Labbé modalities must belong to a **single** `*variable` (e.g.
   `*sexe_h` vs `*sexe_f`); the source rejects mixed variables.
@@ -145,16 +123,13 @@ uv run iramuteq-mcp                 # start the MCP server (stdio)
 ```
 
 Tests that need R and the IRaMuTeQ packages are marked `requires_r`. When R or
-a package is missing they are **skipped** with the reason, never failed. The
-fixtures are generated or copied into temporary directories, so running the
-tests never writes into the repository.
+a package is missing they are **skipped** with the reason. The
+fixtures are generated or copied into temporary directories.
 
 Job records are kept until they are cancelled or pruned explicitly
-(`job_prune`); the server does not discard finished results on its own.
+(`job_prune`).
 
 ## License
 
 GPL-2.0 (see `LICENSE`). This project drives and derives from IRaMuTeQ
-(`Copyright (c) 2008-2024 Pierre Ratinaud`, GNU GPL v2); bundling the sources
-with this server is permitted under those terms, with attribution and source
-availability. The bundled Lexique 3 dictionaries are permissively licensed.
+(`Copyright (c) 2008-2024 Pierre Ratinaud`, GNU GPL v2).
