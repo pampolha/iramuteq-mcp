@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 
 from . import wxstub
 
@@ -25,6 +26,7 @@ log = logging.getLogger("iramuteq_mcp")
 DEFAULT_IRAMUTEQ_PATH = "/home/pampolha/Tools/iramuteq-0.8alpha7-sources"
 
 _ctx: IraContext | None = None
+_init_lock = threading.Lock()
 
 
 class NoOpTree:
@@ -163,24 +165,26 @@ def init(iramuteq_path: str | None = None) -> IraContext:
     global _ctx
     if _ctx is not None:
         return _ctx
+    with _init_lock:
+        if _ctx is not None:
+            return _ctx
+        wxstub.install()
 
-    wxstub.install()
+        root = os.path.abspath(iramuteq_path or os.environ.get("IRAMUTEQ_PATH", DEFAULT_IRAMUTEQ_PATH))
+        if not os.path.isfile(os.path.join(root, "iramuteq.py")):
+            raise RuntimeError(f"IRaMuTeQ sources not found at {root} (set IRAMUTEQ_PATH)")
 
-    root = os.path.abspath(iramuteq_path or os.environ.get("IRAMUTEQ_PATH", DEFAULT_IRAMUTEQ_PATH))
-    if not os.path.isfile(os.path.join(root, "iramuteq.py")):
-        raise RuntimeError(f"IRaMuTeQ sources not found at {root} (set IRAMUTEQ_PATH)")
+        # langue._init() and friends derive AppliPath from sys.argv[0]
+        sys.argv[0] = os.path.join(root, "iramuteq.py")
+        if root not in sys.path:
+            sys.path.insert(0, root)
 
-    # langue._init() and friends derive AppliPath from sys.argv[0]
-    sys.argv[0] = os.path.join(root, "iramuteq.py")
-    if root not in sys.path:
-        sys.path.insert(0, root)
+        _ctx = IraContext(root)
 
-    _ctx = IraContext(root)
+        from . import patches
 
-    from . import patches
-
-    patches.install()
-    log.info("iramuteq bootstrap ok: appli=%s user=%s R=%s", root, _ctx.UserConfigPath, _ctx.RPath)
+        patches.install()
+        log.info("iramuteq bootstrap ok: appli=%s user=%s R=%s", root, _ctx.UserConfigPath, _ctx.RPath)
     return _ctx
 
 

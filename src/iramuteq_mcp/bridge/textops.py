@@ -21,17 +21,25 @@ from . import bootstrap, patches
 
 log = logging.getLogger("iramuteq_mcp")
 
-_corpus_cache: dict[str, object] = {}
+_corpus_cache: dict[str, tuple] = {}
 _cache_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------- corpus
 
 
-def _corpus_key(path: str, lang: str, encoding: str, options: dict) -> str:
+def _corpus_key(path: str, parametres: dict, output_dir: str | None) -> str:
+    """Key on the *resolved* parameter dict (corpus.cfg defaults + overrides).
+
+    ``pathout``/``corpus_name`` are excluded: they only locate the output and
+    ``PathOut.mkdirout`` picks a fresh number as soon as a corpus directory
+    exists, which would defeat reuse.  ``output_dir`` is kept separately for
+    the same reason (it is an explicit caller choice).
+    """
     st = os.stat(path)
+    resolved = {k: v for k, v in parametres.items() if k not in ("pathout", "corpus_name")}
     blob = json.dumps(
-        {"path": path, "mtime": st.st_mtime_ns, "lang": lang, "enc": encoding, **options},
+        {"path": path, "mtime": st.st_mtime_ns, "output_dir": output_dir, "parametres": resolved},
         sort_keys=True,
         default=str,
     )
@@ -61,12 +69,6 @@ def build_corpus(
         raise FileNotFoundError(f"corpus not found: {path}")
     options = dict(options or {})
 
-    key = _corpus_key(path, lang, encoding, options)
-    with _cache_lock:
-        cached = _corpus_cache.get(key)
-        if cached is not None:
-            return cached
-
     # corpus.cfg defaults -> overrides (what CorpusPref would collect in the GUI)
     parametres = DoConf(ira.ConfigPath["corpus"]).getoptions("corpus")
     for k, v in options.items():
@@ -82,6 +84,12 @@ def build_corpus(
     else:
         parametres["pathout"] = PathOut(path, "corpus").mkdirout()
     parametres["corpus_name"] = os.path.basename(parametres["pathout"])
+
+    key = _corpus_key(path, parametres, output_dir)
+    with _cache_lock:
+        cached = _corpus_cache.get(key)
+        if cached is not None:
+            return cached
 
     builder = BuildFromAlceste(path, parametres, ira.lexique, ira.expressions)
     corpus = builder.corpus
@@ -152,8 +160,9 @@ def key_overrides(active_keys=None, supplementary_keys=None):
 
     AnalyseText reads ``ira.ConfigPath['key']`` at construction time, so we
     point it at a temporary copy of key.cfg with the requested categories
-    flipped to 1 (active) or 2 (supplementary).  Analyses are serialised by
-    the job lock, so the swap cannot race with another run.
+    flipped to 1 (active) or 2 (supplementary).  Every analysis runs under
+    ``jobs.analysis_lock()`` — job runners and synchronous tools alike — so
+    no other run can read key.cfg while the swap is active.
     """
     if not active_keys and not supplementary_keys:
         yield
@@ -266,44 +275,81 @@ def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 
                 )
                 if len(errors) >= max_errors:
                     break
-    return {"path": path, "ok": not errors, "errors": errors, "total_errors": len(errors)}
+    return {"path": path, "ok": not errors, "errors": errors, "errors_reported": len(errors)}
 
 
 # ----------------------------------------------------------------- concordance
 
 
 def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
-    """KWIC concordance for a lemma via corpus.getlemconcorde()."""
+    """KWIC concordance for a lemma via corpus.getlemconcorde().
+
+    The ``uces`` table holds the surface text, so a lemma is searched through
+    the written forms of ``corpus.lems[lem].formes``, not the lemma literal:
+    "ecrire" never matches a UCE containing "écrit".  Each hit reports the
+    form that matched.
+    """
     if not corpus.lems:
         _prep_lemmas(corpus)
     if lem not in corpus.lems:
         return {"lem": lem, "found": False, "hits": [], "hint": "lemma not in corpus (try corpus_stats)"}
+    if corpus.idformes is None:
+        corpus.make_idformes()
+    idformes = corpus.idformes or {}
+    forms = sorted({idformes[i].forme for i in corpus.lems[lem].formes if i in idformes})
+    targets: list[str] = []
+    for candidate in [lem, *forms]:
+        low = candidate.lower()
+        if low not in targets:
+            targets.append(low)
+
     hits: list[dict[str, object]] = []
     rows = list(corpus.getlemconcorde(lem))
     for uce_id, text in rows:
         uci = corpus.getucefromid(uce_id)
-        start = 0
         low = text.lower()
-        target = lem.lower()
-        while len(hits) < limit:
-            i = low.find(target, start)
-            if i < 0:
+        matches: list[tuple[int, int, str]] = []
+        for target in targets:
+            start = 0
+            while True:
+                i = low.find(target, start)
+                if i < 0:
+                    break
+                j = i + len(target)
+                start = j
+                if (i == 0 or not low[i - 1].isalnum()) and (j == len(low) or not low[j].isalnum()):
+                    matches.append((i, j, target))
+        for i, j, target in sorted(matches):
+            if len(hits) >= limit:
                 break
-            j = i + len(target)
-            if (i == 0 or not low[i - 1].isalnum()) and (j == len(low) or not low[j].isalnum()):
-                hits.append(
-                    {
-                        "uce": uce_id,
-                        "uci": uci.uci if uci else None,
-                        "left": text[max(0, i - width) : i],
-                        "match": text[i:j],
-                        "right": text[j : j + width],
-                    }
-                )
-            start = j
+            if any(h["uce"] == uce_id and h["start"] == i for h in hits):
+                continue
+            hits.append(
+                {
+                    "uce": uce_id,
+                    "uci": uci.uci if uci else None,
+                    "form": target,
+                    "left": text[max(0, i - width) : i],
+                    "match": text[i:j],
+                    "right": text[j : j + width],
+                    "start": i,
+                }
+            )
         if len(hits) >= limit:
             break
-    return {"lem": lem, "found": True, "uce_count": len(rows), "hits": hits}
+    out: dict[str, object] = {
+        "lem": lem,
+        "found": True,
+        "forms": forms,
+        "uce_count": len(rows),
+        "hits": hits,
+    }
+    if rows and not hits:
+        out["note"] = (
+            "the lemma occurs in the corpus but none of its forms appear verbatim in the "
+            "UCE text (cleaning or segmentation removed them)"
+        )
+    return out
 
 
 # -------------------------------------------------------------------- analyses
@@ -316,11 +362,15 @@ def run_stats(
     lem: bool = True,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Textual statistics (IRaMuTeQ Stat) — synchronous, fast."""
     from textstat import Stat
 
-    corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     with key_overrides(active_keys, supplementary_keys):
         obj = Stat(bootstrap.get(), corpus, {"type": "stat", "lem": lem}, dlg=False, lemdial=False)
@@ -338,13 +388,17 @@ def run_alceste(
     options: dict | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Reinert/ALCESTE descending hierarchical classification (job payload)."""
     from functions import DoConf
     from textreinert import Reinert
 
     ira = bootstrap.get()
-    corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
 
     # defaults = reinert.cfg [ALCESTE], overridden by tool options (the dialog
@@ -375,6 +429,8 @@ def run_lexico(
     options: dict | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Specificities / "Comme Lexico" (IRaMuTeQ Lexico) — job payload.
 
@@ -382,7 +438,9 @@ def run_lexico(
     """
     from textaslexico import Lexico
 
-    corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     listet = resolve_listet(corpus, modalities, single_variable=True)
 
@@ -418,11 +476,15 @@ def run_similitude(
     options: dict | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Similarity graph between active forms (IRaMuTeQ SimiTxt) — job payload."""
     from textsimi import SimiTxt, makesimiparam
 
-    corpus, csum = get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     parametres = {"type": "simitxt", "lem": lem}
     parametres.update(makesimiparam())

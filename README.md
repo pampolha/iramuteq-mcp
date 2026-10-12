@@ -20,7 +20,10 @@ The GUI layer is neutralised.
 
 Long R runs (ALCESTE, Labbé, Tgen profiles, similarity) return a `job_id`
 immediately; poll with `job_status` / `job_result`. Other tools return the
-parsed result directly.
+parsed result directly. `job_cancel` is best-effort: it terminates a running
+R process immediately, but a cancel landing during a Python phase (corpus
+build, lemmatisation) or between two R scripts only takes effect when that
+phase ends, so the job may still finish and report `done`.
 
 **Status & corpus**
 
@@ -64,7 +67,7 @@ parsed result directly.
 | `matrix_freqmulti` | Frequencies of multi-valued columns |
 | `matrix_chi2` | Chi-square independence tests between two column sets |
 | `matrix_mcnemar` | McNemar tests for paired categorical columns |
-| `matrix_splitvar` | One matrix per modality of a column (registered in the history) |
+| `matrix_splitvar` | One matrix per modality of a column |
 | `matrix_proto` | Prototypical analysis: words characterised by frequency and mean rank |
 | `matrix_reinert` *(job)* | Reinert classification on rows |
 | `matrix_similitude` *(job)* | Similarity graph on modalities |
@@ -82,6 +85,11 @@ parsed result directly.
 - **Analysis keys**: every corpus analysis accepts `active_keys` /
   `supplementary_keys` (e.g. `["nom","ver","adj"]`, `["adv","pro_per"]`). They
   override `key.cfg` for that run only.
+- **Segmentation**: `corpus_build`'s `ucemethod` / `ucesize` are accepted by
+  every tool that reads a corpus (`corpus_stats`, `corpus_alceste`,
+  `corpus_concordance`, ...). Pass the values you built with, otherwise the
+  tool resolves `corpus.cfg`'s defaults, misses the cache and rebuilds the
+  corpus into a second `<corpus>_corpus_N` directory.
 - **Modalities** (`corpus_lexico`, `corpus_labbe`): must belong to one
   `*variable`; if omitted, the first variable's modalities are used. Tgen
   analyses accept modalities from any variables.

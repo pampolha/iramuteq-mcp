@@ -43,9 +43,16 @@ _OOM_MARKERS = (
     "out of memory",
 )
 
-# Analyses are serialized: they share corpus sqlite handles and R is
-# memory-hungry; parallel runs would thrash anyway.
-_ANALYSIS_LOCK = threading.Lock()
+# Analyses are serialized: they share the cached corpus/matrix objects and
+# process-global config (key.cfg), and R is memory-hungry; parallel runs
+# would thrash anyway. Reentrant, because a job runner holds it while the
+# bridge functions it calls take it again on the same thread.
+_ANALYSIS_LOCK = threading.RLock()
+
+
+def analysis_lock() -> threading.RLock:
+    """The lock every analysis holds: job runners and the synchronous tools."""
+    return _ANALYSIS_LOCK
 
 
 def classify_r_error(exc: patches.RScriptError) -> str:
@@ -123,30 +130,34 @@ class JobManager:
             if not name.endswith(".json"):
                 continue
             try:
-                with open(os.path.join(self.jobs_dir, name), encoding="utf8") as f:
-                    rec = json.load(f)
+                self._adopt_record(name)
             except Exception:
-                log.warning("skipping unreadable job record %s", name)
-                continue
-            job = Job(id=rec["id"], kind=rec["kind"], params=rec.get("params", {}))
-            for attr in (
-                "status",
-                "phase",
-                "created",
-                "started",
-                "ended",
-                "output_dir",
-                "error",
-                "error_kind",
-            ):
-                if attr in rec:
-                    setattr(job, attr, rec[attr])
-            if job.status in ACTIVE:
-                job.status = "interrupted"
-                job.error = "MCP server restarted while the job was active"
-                job.ended = time.time()
-                self._persist(job)
-            self._jobs[job.id] = job
+                log.warning("skipping unusable job record %s", name, exc_info=True)
+
+    def _adopt_record(self, name: str) -> None:
+        with open(os.path.join(self.jobs_dir, name), encoding="utf8") as f:
+            rec = json.load(f)
+        if not isinstance(rec, dict) or "id" not in rec or "kind" not in rec:
+            raise ValueError("job record must be an object with id and kind")
+        job = Job(id=rec["id"], kind=rec["kind"], params=rec.get("params", {}))
+        for attr in (
+            "status",
+            "phase",
+            "created",
+            "started",
+            "ended",
+            "output_dir",
+            "error",
+            "error_kind",
+        ):
+            if attr in rec:
+                setattr(job, attr, rec[attr])
+        if job.status in ACTIVE:
+            job.status = "interrupted"
+            job.error = "MCP server restarted while the job was active"
+            job.ended = time.time()
+            self._persist(job)
+        self._jobs[job.id] = job
 
     # ----------------------------------------------------------------- submit
 

@@ -132,13 +132,17 @@ def export_class(
     lem: bool = False,
     uci: bool = False,
     out_path: str | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Export one ALCESTE class (from ``analysis_dir/uce.csv``) as a new corpus file.
 
     The corpus must be the one the classification was run on (same file,
-    language and encoding), so that UCE identifiers line up.
+    language, encoding and segmentation), so that UCE identifiers line up.
     """
-    corpus, _ = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, _ = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     uce_file = os.path.join(os.path.abspath(analysis_dir), "uce.csv")
     if not os.path.isfile(uce_file):
         raise FileNotFoundError(f"no uce.csv in {analysis_dir}; run corpus_alceste first")

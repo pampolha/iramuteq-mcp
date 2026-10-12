@@ -9,6 +9,7 @@ from helpers import run, wait_job
 from iramuteq_mcp import (
     analysis_list,
     corpus_alceste,
+    corpus_build,
     corpus_class_cloud,
     corpus_concordance,
     corpus_export_class,
@@ -17,10 +18,12 @@ from iramuteq_mcp import (
     corpus_keys,
     corpus_labbe,
     corpus_lexico,
+    corpus_similitude,
     corpus_split_by_variable,
     corpus_stats,
     corpus_tgen_prof,
     corpus_tgen_spec,
+    corpus_validate,
     corpus_wordcloud,
     matrix_chi2,
     matrix_freqmulti,
@@ -66,6 +69,49 @@ def test_unknown_key_override_is_rejected(corpus_path):
 def test_concordance_finds_the_lemma(corpus_path):
     res = run(corpus_concordance(str(corpus_path), "travail", limit=5))
     assert res["found"] and res["hits"]
+
+
+def test_concordance_matches_inflected_forms(corpus_path):
+    res = run(corpus_concordance(str(corpus_path), "compétence", limit=5))
+    assert res["found"]
+    assert res["forms"] == ["compétences"]
+    assert res["hits"], "the lemma literal never occurs: only its inflected form does"
+    assert {h["form"] for h in res["hits"]} == {"compétences"}
+    assert all(h["match"] for h in res["hits"])
+
+
+def test_validate_reports_errors_reported(corpus_path):
+    res = run(corpus_validate(str(corpus_path)))
+    assert "errors_reported" in res
+    assert "total_errors" not in res
+
+
+def _corpus_dirs(corpus_path):
+    return {d for d in os.listdir(corpus_path.parent) if d.startswith(corpus_path.stem + "_corpus_")}
+
+
+def test_corpus_build_cache_is_reused_by_analyses(corpus_path):
+    build = run(corpus_build(str(corpus_path)))
+    before = _corpus_dirs(corpus_path)
+    stats = run(corpus_stats(str(corpus_path)))
+    assert stats["corpus"]["corpus_uuid"] == build["corpus_uuid"]
+    assert _corpus_dirs(corpus_path) == before, "corpus_stats rebuilt the corpus"
+
+
+def test_segmentation_is_passed_from_build_to_analysis(corpus_path):
+    build = run(corpus_build(str(corpus_path), ucemethod=0, ucesize=60))
+    before = _corpus_dirs(corpus_path)
+    stats = run(corpus_stats(str(corpus_path), ucemethod=0, ucesize=60))
+    assert stats["corpus"]["corpus_uuid"] == build["corpus_uuid"]
+    assert _corpus_dirs(corpus_path) == before, "corpus_stats ignored the built corpus"
+
+
+def test_similitude_rejects_unknown_forms(corpus_path):
+    job = run(corpus_similitude(str(corpus_path), forms=["zzz_not_a_form"]))
+    res = wait_job(job["job_id"])
+    assert res["status"] == "error"
+    assert res["error_kind"] == "invalid_input"
+    assert "zzz_not_a_form" in res["error"]
 
 
 def test_alceste_produces_classes_and_profiles(alceste):
@@ -128,7 +174,10 @@ def test_subcorpus_tools_on_a_copy(corpus_path, tmp_path):
 
 
 def test_history_is_reachable():
-    assert "corpora" in run(analysis_list())
+    res = run(analysis_list())
+    assert "corpora" in res
+    assert "history_file" in res
+    assert "jobs" not in res
 
 
 # ----------------------------------------------------------------- matrix

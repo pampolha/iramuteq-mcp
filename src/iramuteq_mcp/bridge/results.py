@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import re
 
 log = logging.getLogger("iramuteq_mcp")
 
@@ -331,7 +332,7 @@ def list_history() -> dict:
         item = dict(entry)
         item["analyses"] = [dict(a) for a in entry.get("analyses", [])]
         matrices.append(item)
-    return {"corpora": corpora, "matrices": matrices, "jobs": ira.history.filein}
+    return {"corpora": corpora, "matrices": matrices, "history_file": ira.history.filein}
 
 
 # ------------------------------------------------- package A/B result parsers
@@ -351,20 +352,26 @@ def parse_freqmulti(obj, matrix_summary: dict) -> dict:
     }
 
 
+def _trailing_number(name: str) -> int:
+    match = re.search(r"(\d+)$", name)
+    return int(match.group(1)) if match else 0
+
+
 def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
     outdir = obj.parametres.get("pathout")
     created = {}
     for mod in modalities:
-        found = (
-            sorted(
-                os.path.join(outdir, d, "csvfile.csv")
+        dirs = (
+            [
+                d
                 for d in os.listdir(outdir)
                 if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
-            )
+            ]
             if outdir and os.path.isdir(outdir)
             else []
         )
-        created[mod] = found[-1] if found else None
+        dirs.sort(key=_trailing_number)
+        created[mod] = os.path.join(outdir, dirs[-1], "csvfile.csv") if dirs else None
     return {
         "analysis": "splitvar",
         "output_dir": outdir,

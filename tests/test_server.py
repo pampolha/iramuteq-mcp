@@ -64,6 +64,19 @@ def test_unknown_job_id_is_a_tool_error():
             run(tool("does-not-exist"))
 
 
+def test_job_tools_validate_before_submitting_a_job():
+    from fastmcp.exceptions import ToolError
+
+    from iramuteq_mcp import corpus_labbe, matrix_reinert
+
+    with pytest.raises(ToolError, match="indice"):
+        run(corpus_labbe("/nonexistent/corpus.txt", indice="wrong"))
+    with pytest.raises(ToolError, match="active_columns"):
+        run(matrix_reinert("/nonexistent/table.csv"))
+    with pytest.raises(ToolError, match="supplementary_columns"):
+        run(matrix_reinert("/nonexistent/table.csv", active_columns=[0], supplementary_columns=[]))
+
+
 @pytest.mark.requires_r
 def test_status_reports_ready():
     st = run(status())

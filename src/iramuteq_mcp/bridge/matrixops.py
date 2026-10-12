@@ -331,7 +331,10 @@ def run_matrix_similitude(
             self.tableau.make_listactives()
             if words:
                 wanted = {w: i for i, w in enumerate(self.tableau.listactives)}
-                self.column = sorted(wanted[w] for w in words if w in wanted)
+                missing = [w for w in words if w not in wanted]
+                if missing:
+                    raise ValueError(f"words not in the selected columns: {missing}; available: {sorted(wanted)[:50]}")
+                self.column = sorted(wanted[w] for w in words)
             else:
                 self.column = list(range(len(self.tableau.listactives)))
             self.parametres.update(self.paramsimi)
@@ -382,7 +385,8 @@ def run_splitvar(
 ) -> dict:
     """Split a matrix into one matrix per modality of ``column`` (IRaMuTeQ SplitMatrixFromVar).
 
-    The source also registers each new matrix in the IRaMuTeQ history.
+    The split matrices are written beside the input.  Upstream runs this
+    analysis with ``tohistory=False``, so nothing is added to the history.
     """
     from tabsplitvar import SplitMatrixFromVar
 

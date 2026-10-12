@@ -147,6 +147,43 @@ def test_unreadable_record_is_skipped(tmp_path):
     assert jobs.JobManager(str(d)).list() == []
 
 
+def test_structurally_invalid_records_are_skipped(tmp_path):
+    d = tmp_path / "mcp-jobs"
+    d.mkdir()
+    (d / "no-id.json").write_text(json.dumps({"kind": "demo", "status": "done"}))
+    (d / "no-kind.json").write_text(json.dumps({"id": "abc123", "status": "done"}))
+    (d / "array.json").write_text(json.dumps(["not", "a", "job"]))
+    (d / "scalar.json").write_text("42")
+    (d / "good.json").write_text(json.dumps({"id": "good1", "kind": "demo", "status": "done"}))
+
+    manager = jobs.JobManager(str(d))
+    assert [j["job_id"] for j in manager.list()] == ["good1"]
+
+
+def test_analysis_lock_is_reentrant_and_exclusive():
+    lock = jobs.analysis_lock()
+    with lock:
+        with lock:
+            pass
+
+    holding = threading.Event()
+    release = threading.Event()
+
+    def holder():
+        with lock:
+            holding.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    assert holding.wait(5)
+    assert not lock.acquire(blocking=False)
+    release.set()
+    thread.join()
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+
 def test_classify_r_error_directly():
     assert jobs.classify_r_error(patches.RScriptError("x", returncode=-15)) == "killed"
     assert jobs.classify_r_error(patches.RScriptError("x", 1, "Cannot allocate vector")) == "out_of_memory"

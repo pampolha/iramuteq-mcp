@@ -91,13 +91,17 @@ def run_labbe(
     output_dir: str | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Labbé lexical distance between modalities (IRaMuTeQ DistLabbe) — job payload."""
     from textlabbe import DistLabbe
 
     if indice not in ("hypergeo", "chi2"):
         raise ValueError("indice must be 'hypergeo' or 'chi2'")
-    corpus, csum = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     listet = textops.resolve_listet(corpus, modalities, single_variable=True)
     parametres = {
@@ -188,6 +192,8 @@ def run_wordcloud(
     output_dir: str | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Word cloud of active (0), supplementary (1) or all (2) forms."""
     from textwordcloud import WordCloud
@@ -196,7 +202,9 @@ def run_wordcloud(
         raise ValueError("mode must be 0 (active), 1 (supplementary) or 2 (both)")
     _install_headless_selectcolumn()
     opts = _cloud_options(options)
-    corpus, csum = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     parametres = {"type": "wordcloud", "lem": lem}
     if output_dir:
@@ -226,6 +234,8 @@ def run_class_cloud(
     encoding: str = "utf8",
     lem: bool = True,
     output_dir: str | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Word cloud of one ALCESTE class, weighted by its profile.
 
@@ -255,7 +265,9 @@ def run_class_cloud(
 
     _install_headless_selectcolumn()
     opts = _cloud_options(options)
-    corpus, csum = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     parametres = {"type": "clustercloud", "lem": lem, "clusterprof": clusterprof, "indice": indice}
     if output_dir:
@@ -303,6 +315,8 @@ def run_tgen_spec(
     output_dir: str | None = None,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Specificity of Tgen groups across modalities (IRaMuTeQ TgenSpec)."""
     from textaslexico import TgenSpec
@@ -310,7 +324,9 @@ def run_tgen_spec(
     tgen_src = os.path.abspath(tgen_path)
     if not os.path.isfile(tgen_src):
         raise FileNotFoundError(f"tgen file not found: {tgen_src}")
-    corpus, csum = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     base = output_dir or csum["pathout"]
     outdir = new_outdir(base, "tgenspec")
@@ -341,6 +357,8 @@ def run_tgen_prof(
     lem: bool = True,
     active_keys: list[str] | None = None,
     supplementary_keys: list[str] | None = None,
+    ucemethod: int | None = None,
+    ucesize: int | None = None,
 ) -> dict:
     """Profile Tgen groups over the classes of an ALCESTE run (IRaMuTeQ TgenProf) — job payload."""
     from textreinert import TgenProf
@@ -351,7 +369,9 @@ def run_tgen_prof(
         raise FileNotFoundError(f"tgen file not found: {tgen_src}")
     if not os.path.isfile(uce_file):
         raise FileNotFoundError(f"no uce.csv in {analysis_dir}; run corpus_alceste first")
-    corpus, csum = textops.get_corpus(corpus_path, lang=lang, encoding=encoding)
+    corpus, csum = textops.get_corpus(
+        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
+    )
     patches.sweep()
     outdir = new_outdir(os.path.abspath(analysis_dir), "tgenprof")
     with textops.key_overrides(active_keys, supplementary_keys):
