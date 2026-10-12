@@ -1,0 +1,15 @@
+[project]
+name = "iramuteq-mcp"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=4.1.0",
+]
+
+[project.scripts]
+iramuteq-mcp = "iramuteq_mcp:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
