@@ -216,29 +216,38 @@ def _read_tsv(path: str) -> list[list[str]]:
 
 
 def parse_frequencies(obj, matrix_summary: dict) -> dict:
-    """Parse the R outframe of Frequences (groups separated by '***' marker rows)."""
+    """Parse the R outframe of Frequences (groups separated by '***' marker rows).
+
+    ``write.table`` prefixes every row with its row name, so a data row is
+    ``[rowname, effectif, pourcentage, label]`` and a marker row carries '***'
+    in the effectif slot (label cells hold the '****' placeholder).
+    """
     rows = _read_tsv(getattr(obj, "outframe", ""))
     titles = list(getattr(obj, "listtitre", []))
-    tables: list[list[list[str]]] = []
-    current: list[list[str]] = []
+    tables: list[list[dict]] = []
+    current: list[dict] = []
     for row in rows[1:] if rows else []:
-        if row and row[0] == "***":
+        if not row:
+            continue
+        if "***" in row:
             if current:
                 tables.append(current)
-            current = []
+                current = []
+            continue
+        if len(row) >= 4:
+            effectif, pourcentage, label = row[1], row[2], row[3] or row[0]
+        elif len(row) == 3:
+            effectif, pourcentage, label = row[0], row[1], row[2]
         else:
-            current.append(row)
+            continue
+        current.append({"label": label, "effectif": effectif, "pourcentage": pourcentage})
     if current:
         tables.append(current)
 
     out_tables = []
     for i, table in enumerate(tables):
-        entries = []
-        for row in table:
-            if len(row) >= 3:
-                entries.append({"label": row[2], "effectif": row[0], "pourcentage": row[1]})
         title = titles[i] if i < len(titles) else f"column_{i}"
-        out_tables.append({"column": title, "frequencies": entries})
+        out_tables.append({"column": title, "frequencies": table})
     return {
         "analysis": "freq",
         "output_dir": obj.parametres.get("pathout"),
@@ -249,17 +258,42 @@ def parse_frequencies(obj, matrix_summary: dict) -> dict:
 
 
 def parse_chi2(obj, matrix_summary: dict) -> dict:
-    """Parse the tagged R outframe of ChiSquare/McNemar plus its HTML report."""
-    rows = _read_tsv(getattr(obj, "OutFrame", ""))
+    """Parse the tagged outframe of ChiSquare/McNemar plus its HTML report.
+
+    R writes it with ``write.csv2`` (semicolon-separated, row names in the first
+    column): a marker row repeats one ``*tag*`` cell, the rows that follow are the
+    table for that tag, and a final ``res`` row carries chi/p plus the plot path.
+    """
+    rows = _read_csv(getattr(obj, "OutFrame", ""), sep=";")
     tags: dict[str, list[list[str]]] = {}
     results_rows: list[list[str]] = []
+    current: list[list[str]] | None = None
     for row in rows:
-        if not row:
+        if not row or all(cell == "" for cell in row):
             continue
         if row[0] == "res":
             results_rows.append(row[1:])
-        elif len(row) > 1 and row[1].startswith("*") and row[1].endswith("*"):
-            tags.setdefault(row[1].strip("*"), []).append(row[2:])
+            current = None
+            continue
+        cells = [c for c in row[1:] if c != ""]
+        if (
+            len(cells) >= 2
+            and len(set(cells)) == 1
+            and cells[0].startswith("*")
+            and cells[0].endswith("*")
+            and len(cells[0]) > 2
+        ):
+            current = tags.setdefault(cells[0].strip("*"), [])
+            continue
+        if cells and set(cells) == {"fin_analyse"}:
+            current = None
+            continue
+        if current is None:
+            continue
+        trimmed = list(row)
+        while trimmed and trimmed[-1] in ("", "**"):
+            trimmed.pop()
+        current.append(trimmed)
     return {
         "analysis": getattr(obj, "parametres", {}).get("type", "chi2"),
         "output_dir": obj.parametres.get("pathout"),

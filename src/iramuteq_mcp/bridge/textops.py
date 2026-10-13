@@ -16,6 +16,7 @@ import logging
 import os
 import tempfile
 import threading
+from types import SimpleNamespace
 
 from . import bootstrap, patches
 
@@ -468,7 +469,7 @@ def run_lexico(
 
 def run_similitude(
     corpus_path: str,
-    selected: list[int] | None = None,
+    forms: list[str] | None = None,
     lang: str = "french",
     encoding: str = "utf8",
     lem: bool = True,
@@ -480,21 +481,39 @@ def run_similitude(
     ucesize: int | None = None,
 ) -> dict:
     """Similarity graph between active forms (IRaMuTeQ SimiTxt) — job payload."""
-    from textsimi import SimiTxt, makesimiparam
+    from textsimi import SimiTxt
 
     corpus, csum = get_corpus(
         corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
     )
     patches.sweep()
+    # makesimiparam is a SimiTxt method (defaults the GUI would show); calling it
+    # unbound on a holder keeps the defaults in sync with the source tree.
+    holder = SimpleNamespace(parametres={})
+    SimiTxt.makesimiparam(holder)
     parametres = {"type": "simitxt", "lem": lem}
-    parametres.update(makesimiparam())
+    parametres.update(holder.parametres)
     parametres.update({k: v for k, v in (options or {}).items() if v is not None})
-    if selected is not None:
-        parametres["selected"] = selected
     if output_dir:
         parametres["pathout"] = output_dir
 
     with key_overrides(active_keys, supplementary_keys):
+        # Headless SimiTxt never collects 'selected' itself: its doanalyse writes
+        # selected.csv as ``order_actives[val][0] for val in parametres['selected']``,
+        # i.e. positions in the frequency-sorted list of ``make_actives_limit(3)``.
+        _prep_lemmas(corpus, lem=lem)
+        actives = corpus.make_actives_limit(3)
+        eff = [corpus.getlemeff(a) for a in actives]
+        order = sorted(range(len(actives)), key=lambda i: -eff[i])
+        if not forms:
+            parametres["selected"] = list(range(len(actives)))
+        else:
+            missing = [f for f in forms if f not in set(actives)]
+            if missing:
+                raise ValueError(f"forms not among the active forms: {missing}; active forms: {sorted(actives)[:50]}")
+            rank = {i: p for p, i in enumerate(order)}
+            wanted = set(forms)
+            parametres["selected"] = sorted(rank[i] for i, a in enumerate(actives) if a in wanted)
         obj = SimiTxt(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
     from . import results
 

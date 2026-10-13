@@ -79,6 +79,10 @@ def _job_manager() -> jobs.JobManager:
 
 
 def _locked(fn, *args, **kwargs):
+    # the IRaMuTeQ sources are only importable after bootstrap (sys.path + wx stub),
+    # so initialise it here: bridge functions import those modules at call time and
+    # may be the first thing a fresh server process ever runs.
+    bootstrap.get()
     with jobs.analysis_lock():
         return fn(*args, **kwargs)
 
@@ -107,13 +111,15 @@ async def status() -> dict:
                 ctx.RPath,
                 "--slave",
                 "-e",
-                "cat(paste(c(%s), collapse=','))" % ",".join('"%s"' % p for p in R_PACKAGES),
+                "pkgs <- c(%s); "
+                'cat(paste(pkgs[pkgs %%in%% rownames(installed.packages())], collapse=","))'
+                % ",".join('"%s"' % p for p in R_PACKAGES),
             ],
             capture_output=True,
             text=True,
             timeout=60,
         )
-        installed = set(proc.stdout.strip().split(",")) if proc.returncode == 0 else set()
+        installed = {p for p in proc.stdout.strip().split(",") if p} if proc.returncode == 0 else set()
         missing = [p for p in R_PACKAGES if p not in installed]
     except Exception as exc:
         missing = [f"cannot check R packages: {exc}"]
@@ -144,7 +150,7 @@ async def corpus_validate(
     encoding: Annotated[str, "File encoding"] = "utf8",
 ) -> dict:
     """Validate ALCESTE corpus formatting (**** headers, -* themes, *variables)."""
-    return await asyncio.to_thread(textops.validate_corpus, path, encoding)
+    return await _sync(textops.validate_corpus, path, encoding)
 
 
 @mcp.tool
@@ -353,23 +359,12 @@ async def corpus_similitude(
 ) -> dict:
     """Start a similarity-graph analysis between active forms as a background job."""
     options = {"coeff": coeff, "layout": layout, "seuil": seuil, "arbremax": int(arbremax)}
-    corpus_options = {"ucemethod": ucemethod, "ucesize": ucesize}
 
     def runner(job):
         job.phase = "similarity matrix + graph (R)"
-        selected = None
-        if forms:
-            corpus, _ = textops.build_corpus(path, lang=lang, encoding=encoding, options=corpus_options)
-            textops._prep_lemmas(corpus)
-            actives, _ = corpus.make_actives_nb(20000, 1)
-            pos = {form: i for i, form in enumerate(actives)}
-            missing = [f for f in forms if f not in pos]
-            if missing:
-                raise ValueError(f"forms not among the active forms: {missing}; active forms: {sorted(pos)[:50]}")
-            selected = sorted(pos[f] for f in forms)
         return textops.run_similitude(
             path,
-            selected=selected,
+            forms=forms,
             lang=lang,
             encoding=encoding,
             lem=lem,
@@ -945,7 +940,7 @@ async def analysis_read(
     path: Annotated[str, "Path to an analysis directory or its Analyse.ira"],
 ) -> dict:
     """Read any finished IRaMuTeQ analysis directory (parameters + parsed outputs)."""
-    return await asyncio.to_thread(results.read_analysis, path)
+    return await _sync(results.read_analysis, path)
 
 
 @mcp.tool
