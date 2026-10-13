@@ -149,7 +149,15 @@ async def corpus_validate(
     path: Annotated[str, "Absolute path to the ALCESTE-formatted .txt corpus"],
     encoding: Annotated[str, "File encoding"] = "utf8",
 ) -> dict:
-    """Validate ALCESTE corpus formatting (**** headers, -* themes, *variables)."""
+    """Validate ALCESTE corpus formatting (**** headers, -* themes, *variables).
+
+    Header format: each text starts with a '****' line carrying its variables
+    as '*variable_modality' tokens on that same line, e.g. '**** *sexe_h *age_20'
+    (underscore, no spaces, no '='). The '*sexe=h' form is rejected because
+    IRaMuTeQ parses only '*variable_modality' and silently drops the rest, which
+    leaves downstream analyses without variables. Themes are '-*theme' lines
+    inside the text.
+    """
     return await _sync(textops.validate_corpus, path, encoding)
 
 
@@ -161,7 +169,15 @@ async def corpus_build(
     ucemethod: Annotated[int, "UCE segmentation: 0=chars, 1=words, 2=paragraphs"] = 1,
     ucesize: Annotated[int, "Target UCE size (chars or words depending on ucemethod)"] = 40,
 ) -> dict:
-    """Build (and cache) the IRaMuTeQ corpus: parse, clean, lemmatise, segment UCEs."""
+    """Build (and cache) the IRaMuTeQ corpus: parse, clean, lemmatise, segment UCEs.
+
+    Expects ALCESTE headers: each text starts with a '****' line carrying its
+    variables as '*variable_modality' tokens on that same line, e.g.
+    '**** *sexe_h *age_20' (underscore, no spaces, no '='), with themes as
+    '-*theme' lines inside the text. Run corpus_validate first: headers like
+    '*sexe=h' build fine but are ignored, leaving no variables for
+    corpus_lexico and the other variable-based analyses.
+    """
     options = {"ucemethod": ucemethod, "ucesize": ucesize}
 
     def run():

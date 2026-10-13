@@ -228,7 +228,11 @@ def resolve_listet(corpus, modalities=None, single_variable=True):
     else:
         by_var = treat_var_mod([m.lstrip("*") for m in all_mods])
         if not by_var:
-            raise ValueError("corpus has no *variable_modality entries")
+            raise ValueError(
+                f"corpus has no *variable_modality entries (starred headers found: {sorted(all_mods)}); "
+                "variables must be written '*variable_modality' on the '****' line, e.g. '**** *sexe_h'; "
+                "'*sexe=h' and tokens without '_' are ignored by IRaMuTeQ (run corpus_validate)"
+            )
         first_var = sorted(by_var)[0]
         listet = [m for m in all_mods if m.lstrip("*") in set(by_var[first_var])]
     if not listet:
@@ -252,9 +256,40 @@ _CHECK_MESSAGES = {
     4: "bad token in UCI header (must be *variable, spaces not allowed inside)",
 }
 
+_FORMAT_EXAMPLE = "variables must be '*variable_modality' on the '****' line, e.g. '**** *sexe_h'"
+
+
+def _check_variable_headers(line: str, lnb: int) -> list[dict]:
+    """Flag header tokens that ``functions.treat_var_mod`` would silently drop.
+
+    Analyses read variables only from tokens shaped ``*variable_modality``
+    (treat_var_mod splits each token on ``_`` and keeps it only when at least
+    two parts remain), so a starred token without ``_`` makes the corpus look
+    variable-free downstream while IRaMuTeQ's own checkline() passes it.
+    """
+    if not (line.startswith("****") or (line[0:4].isdigit() and "*" in line)):
+        return []
+    errors = []
+    for token in line.split()[1:]:
+        if not token.startswith("*"):
+            continue
+        if "=" in token:
+            suggestion = token[1:].replace("=", "_")
+            message = f"{token}: '=' is not parsed as a variable separator; write '*{suggestion}', {_FORMAT_EXAMPLE}"
+            errors.append({"line": lnb, "code": 5, "message": message, "text": line[:120]})
+        elif "_" not in token:
+            message = f"{token}: no '_' in the starred token; {_FORMAT_EXAMPLE}"
+            errors.append({"line": lnb, "code": 6, "message": message, "text": line[:120]})
+    return errors
+
 
 def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 100) -> dict:
-    """Validate ALCESTE formatting with IRaMuTeQ's own checkline()."""
+    """Validate ALCESTE formatting with IRaMuTeQ's own checkline().
+
+    Beyond checkline(), starred header tokens are checked against the shape
+    analyses parse (``*variable_modality``), so a corpus that would build but
+    expose no variables downstream is reported here instead.
+    """
     from textcheckcorpus import checkline
 
     path = os.path.abspath(corpus_path)
@@ -266,16 +301,21 @@ def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 
                 continue
             res = checkline(line, lnb)
             if not res[0]:
-                errors.append(
-                    {
-                        "line": lnb,
-                        "code": res[1],
-                        "message": _CHECK_MESSAGES.get(res[1], "invalid"),
-                        "text": line[:120],
-                    }
-                )
-                if len(errors) >= max_errors:
-                    break
+                message = _CHECK_MESSAGES.get(res[1], "invalid")
+                if res[1] == 3 and line.startswith("*"):
+                    first = line.split()[0]
+                    if "=" in line:
+                        message = (
+                            f"{first}: '=' is not parsed; write '*{first[1:].replace('=', '_')}' "
+                            f"on the '****' line ({_FORMAT_EXAMPLE})"
+                        )
+                    else:
+                        message = f"{first}: {_FORMAT_EXAMPLE}"
+                errors.append({"line": lnb, "code": res[1], "message": message, "text": line[:120]})
+            else:
+                errors.extend(_check_variable_headers(line, lnb))
+            if len(errors) >= max_errors:
+                break
     return {"path": path, "ok": not errors, "errors": errors, "errors_reported": len(errors)}
 
 

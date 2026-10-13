@@ -86,6 +86,50 @@ def test_validate_reports_errors_reported(corpus_path):
     assert "total_errors" not in res
 
 
+def test_validate_accepts_variable_modality_and_plain_headers(tmp_path):
+    p = tmp_path / "ok.txt"
+    p.write_text(
+        "**** *sexe_h *age_20\n-*travail\nTexte une.\n\n****\n-*travail\nTexte deux.\n",
+        encoding="utf8",
+    )
+    assert run(corpus_validate(str(p)))["ok"]
+
+
+def test_validate_rejects_equals_form_of_a_variable(tmp_path):
+    p = tmp_path / "eq.txt"
+    p.write_text("**** *QUESTAO=Q1\n-*q1\nTexte.\n", encoding="utf8")
+    res = run(corpus_validate(str(p)))
+    assert not res["ok"]
+    assert "*QUESTAO_Q1" in res["errors"][0]["message"]
+
+
+def test_validate_rejects_header_token_without_underscore(tmp_path):
+    p = tmp_path / "no_underscore.txt"
+    p.write_text("**** *QUESTAOQ1\n-*q1\nTexte.\n", encoding="utf8")
+    res = run(corpus_validate(str(p)))
+    assert not res["ok"]
+    assert "variable_modality" in res["errors"][0]["message"]
+
+
+def test_validate_hints_at_the_header_line_for_a_starred_line(tmp_path):
+    p = tmp_path / "two_lines.txt"
+    p.write_text("****\n*QUESTAO=Q1\n-*q1\nTexte.\n", encoding="utf8")
+    res = run(corpus_validate(str(p)))
+    assert not res["ok"]
+    assert "*QUESTAO_Q1" in res["errors"][0]["message"]
+
+
+def test_lexico_error_explains_the_expected_header_format(tmp_path):
+    p = tmp_path / "bad_vars.txt"
+    p.write_text("**** *QUESTAO=Q1\n-*q1\nTexte de la réponse.\n", encoding="utf8")
+    job = run(corpus_lexico(str(p)))
+    res = wait_job(job["job_id"])
+    assert res["status"] == "error", res.get("error")
+    assert res["error_kind"] == "invalid_input"
+    assert "*QUESTAO=Q1" in res["error"]
+    assert "**** *sexe_h" in res["error"]
+
+
 def _corpus_dirs(corpus_path):
     return {d for d in os.listdir(corpus_path.parent) if d.startswith(corpus_path.stem + "_corpus_")}
 
