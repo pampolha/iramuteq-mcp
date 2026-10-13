@@ -19,7 +19,7 @@ def _manager():
 
 def test_cancel_terminates_running_r_process(tmp_path):
     corpus = write_large_corpus(tmp_path / "large.txt", documents=400)
-    job = run(corpus_alceste(str(corpus), nbcl_p1=5, max_actives=2000))
+    job = run(corpus_alceste(str(corpus), lang="french", nbcl_p1=5, max_actives=2000))
 
     # wait until IRaMuTeQ has spawned its R process for this job
     record = _manager().get(job["job_id"])

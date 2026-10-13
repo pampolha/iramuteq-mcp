@@ -82,6 +82,10 @@ phase ends, so the job may still finish and report `done`.
 
 ### Common options
 
+- **Language**: `lang` is required by every corpus tool — there is no default.
+  Pass the Lexique 3 language of the corpus (e.g. `french`, `english`,
+  `portuguese`); it drives lemmatisation, so build and analyse a corpus with
+  the same value.
 - **Analysis keys**: every corpus analysis accepts `active_keys` /
   `supplementary_keys` (e.g. `["nom","ver","adj"]`, `["adv","pro_per"]`). They
   override `key.cfg` for that run only.

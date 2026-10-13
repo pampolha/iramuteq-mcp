@@ -164,7 +164,7 @@ async def corpus_validate(
 @mcp.tool
 async def corpus_build(
     path: Annotated[str, "Absolute path to the ALCESTE-formatted .txt corpus"],
-    lang: Annotated[str, "Corpus language for Lexique 3 (french, english, ...)"] = "french",
+    lang: Annotated[str, "Corpus language for Lexique 3 (french, english, ...)"],
     encoding: Annotated[str, "File encoding"] = "utf8",
     ucemethod: Annotated[int, "UCE segmentation: 0=chars, 1=words, 2=paragraphs"] = 1,
     ucesize: Annotated[int, "Target UCE size (chars or words depending on ucemethod)"] = 40,
@@ -190,7 +190,7 @@ async def corpus_build(
 @mcp.tool
 async def corpus_stats(
     path: Annotated[str, "Absolute path to the corpus (built on first use)"],
-    lang: Annotated[str, "Corpus language"] = "french",
+    lang: Annotated[str, "Corpus language"],
     encoding: Annotated[str, "File encoding"] = "utf8",
     lem: Annotated[bool, "Lemmatise (verbs to infinitive, nouns to masc. sing.)"] = True,
     active_keys: ActiveKeys = None,
@@ -208,9 +208,9 @@ async def corpus_stats(
 async def corpus_concordance(
     path: Annotated[str, "Absolute path to the corpus"],
     lem: Annotated[str, "Lemma or form to search (see corpus_stats for the list)"],
+    lang: Annotated[str, "Corpus language"],
     limit: Annotated[int, "Maximum number of hits"] = 50,
     width: Annotated[int, "Context characters on each side"] = 60,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     ucemethod: SegmentationMethod = None,
     ucesize: SegmentationSize = None,
@@ -276,6 +276,7 @@ def _alceste_job(
 @mcp.tool
 async def corpus_alceste(
     path: Annotated[str, "Absolute path to the corpus"],
+    lang: Annotated[str, "Corpus language"],
     classif_mode: Annotated[int, "0=double on UC, 1=simple on UCE, 2=simple on UCI"] = 1,
     nbcl_p1: Annotated[int, "Terminal classes of classification phase 1"] = 10,
     mincl: Annotated[int, "Minimum UCEs per class (0 = automatic)"] = 0,
@@ -284,7 +285,6 @@ async def corpus_alceste(
     tailleuc2: Annotated[int, "Target size of UC table 2 (active occurrences)"] = 14,
     svdmethod: Annotated[str, "SVD method: svdR, irlba or svdlibc"] = "irlba",
     lem: Annotated[bool, "Lemmatise"] = True,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
     active_keys: ActiveKeys = None,
@@ -315,6 +315,7 @@ async def corpus_alceste(
 @mcp.tool
 async def corpus_lexico(
     path: Annotated[str, "Absolute path to the corpus"],
+    lang: Annotated[str, "Corpus language"],
     modalities: Annotated[
         list[str] | None,
         "variable_modality entries to compare; must share ONE variable (empty = first variable's modalities)",
@@ -322,7 +323,6 @@ async def corpus_lexico(
     mineff: Annotated[int, "Minimum frequency of analysed forms"] = 10,
     indice: Annotated[str, "Specificity index: hypergeo or chi2"] = "hypergeo",
     lem: Annotated[bool, "Lemmatise"] = True,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
     active_keys: ActiveKeys = None,
@@ -359,13 +359,13 @@ async def corpus_lexico(
 @mcp.tool
 async def corpus_similitude(
     path: Annotated[str, "Absolute path to the corpus"],
+    lang: Annotated[str, "Corpus language"],
     forms: Annotated[list[str] | None, "Lemma subset to plot (empty = all active forms)"] = None,
     coeff: Annotated[int, "Similarity index (0=cooccurrence, 3=Jaccard, 12=Dice, ...)"] = 0,
     layout: Annotated[int, "Graph layout (0=random, 1=circle, 2=Fruchterman-Reingold, ...)"] = 2,
     seuil: Annotated[float, "Edge threshold"] = 1,
     arbremax: Annotated[bool, "Reduce the graph to a maximum spanning tree"] = True,
     lem: Annotated[bool, "Lemmatise"] = True,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
     active_keys: ActiveKeys = None,
@@ -624,7 +624,7 @@ async def corpus_export_class(
     path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
     analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
     class_id: Annotated[int, "ALCESTE class number (1-based)"],
-    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"],
     encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
     lem: Annotated[bool, "Write lemmas instead of forms"] = False,
     uci: Annotated[bool, "Export whole UCIs instead of UCEs"] = False,
@@ -652,11 +652,11 @@ async def corpus_export_class(
 @mcp.tool
 async def corpus_labbe(
     path: Annotated[str, "Absolute path to the corpus"],
+    lang: Annotated[str, "Corpus language"],
     modalities: Annotated[list[str] | None, "Modalities of ONE variable (empty = first variable)"] = None,
     mineff: Annotated[int, "Minimum frequency of analysed forms"] = 10,
     indice: Annotated[str, "Specificity index: hypergeo or chi2"] = "hypergeo",
     lem: Annotated[bool, "Lemmatise"] = True,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
     active_keys: ActiveKeys = None,
@@ -699,6 +699,7 @@ async def corpus_labbe(
 @mcp.tool
 async def corpus_wordcloud(
     path: Annotated[str, "Absolute path to the corpus"],
+    lang: Annotated[str, "Corpus language"],
     mode: Annotated[int, "0 = active forms, 1 = supplementary forms, 2 = both"] = 0,
     forms: Annotated[
         list[str] | None, "Optional subset of lemmas to draw (must be active/supplementary per mode)"
@@ -711,7 +712,6 @@ async def corpus_wordcloud(
     col_text: Annotated[list[int] | None, "Text colour as [R,G,B]"] = None,
     col_bg: Annotated[list[int] | None, "Background colour as [R,G,B]"] = None,
     svg: Annotated[bool, "SVG instead of PNG"] = False,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     lem: Annotated[bool, "Lemmatise"] = True,
     active_keys: ActiveKeys = None,
@@ -752,12 +752,12 @@ async def corpus_class_cloud(
     path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
     analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
     class_id: Annotated[int, "ALCESTE class number (1-based)"],
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"],
     indice: Annotated[int, "Weight: 0 = class frequency, 1 = chi-square with the class"] = 0,
     maxword: Annotated[int, "Maximum number of words drawn"] = 100,
     width: Annotated[int, "Image width (px)"] = 800,
     height: Annotated[int, "Image height (px)"] = 800,
     svg: Annotated[bool, "SVG instead of PNG"] = False,
-    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
     encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
     ucemethod: SegmentationMethod = None,
     ucesize: SegmentationSize = None,
@@ -809,8 +809,8 @@ async def matrix_proto(
 async def corpus_tgen_spec(
     path: Annotated[str, "Absolute path to the corpus"],
     tgen_path: Annotated[str, "Tab-separated file: one line per group, 'group<TAB>lemma<TAB>lemma...'"],
+    lang: Annotated[str, "Corpus language"],
     modalities: Annotated[list[str] | None, "*variable_modality entries (empty = all)"] = None,
-    lang: Annotated[str, "Corpus language"] = "french",
     encoding: Annotated[str, "File encoding"] = "utf8",
     lem: Annotated[bool, "Lemmatise"] = True,
     active_keys: ActiveKeys = None,
@@ -840,7 +840,7 @@ async def corpus_tgen_prof(
     path: Annotated[str, "Absolute path to the corpus the ALCESTE run used"],
     analysis_dir: Annotated[str, "Output directory of a finished corpus_alceste run"],
     tgen_path: Annotated[str, "Tab-separated Tgen file: 'group<TAB>lemma<TAB>lemma...'"],
-    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"] = "french",
+    lang: Annotated[str, "Corpus language (must match the ALCESTE run)"],
     encoding: Annotated[str, "File encoding (must match the ALCESTE run)"] = "utf8",
     lem: Annotated[bool, "Lemmatise"] = True,
     active_keys: ActiveKeys = None,

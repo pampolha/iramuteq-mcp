@@ -40,7 +40,7 @@ pytestmark = pytest.mark.requires_r
 
 @pytest.fixture(scope="module")
 def alceste(corpus_path):
-    job = run(corpus_alceste(str(corpus_path), nbcl_p1=2, max_actives=200))
+    job = run(corpus_alceste(str(corpus_path), lang="french", nbcl_p1=2, max_actives=200))
     res = wait_job(job["job_id"])
     assert res["status"] == "done", res.get("error")
     return res["result"]
@@ -54,12 +54,12 @@ def test_keys_report_defaults():
 
 
 def test_stats_and_key_override(corpus_path):
-    assert run(corpus_stats(str(corpus_path)))["counts"]["forms_total"] > 0
-    assert run(corpus_stats(str(corpus_path), active_keys=["adv"]))["counts"]
+    assert run(corpus_stats(str(corpus_path), lang="french"))["counts"]["forms_total"] > 0
+    assert run(corpus_stats(str(corpus_path), lang="french", active_keys=["adv"]))["counts"]
 
 
 def test_unknown_key_override_is_rejected(corpus_path):
-    job = run(corpus_lexico(str(corpus_path), mineff=3, active_keys=["not_a_key"]))
+    job = run(corpus_lexico(str(corpus_path), lang="french", mineff=3, active_keys=["not_a_key"]))
     res = wait_job(job["job_id"])
     assert res["status"] == "error"
     assert res["error_kind"] == "invalid_input"
@@ -67,12 +67,12 @@ def test_unknown_key_override_is_rejected(corpus_path):
 
 
 def test_concordance_finds_the_lemma(corpus_path):
-    res = run(corpus_concordance(str(corpus_path), "travail", limit=5))
+    res = run(corpus_concordance(str(corpus_path), "travail", lang="french", limit=5))
     assert res["found"] and res["hits"]
 
 
 def test_concordance_matches_inflected_forms(corpus_path):
-    res = run(corpus_concordance(str(corpus_path), "compétence", limit=5))
+    res = run(corpus_concordance(str(corpus_path), "compétence", lang="french", limit=5))
     assert res["found"]
     assert res["forms"] == ["compétences"]
     assert res["hits"], "the lemma literal never occurs: only its inflected form does"
@@ -122,7 +122,7 @@ def test_validate_hints_at_the_header_line_for_a_starred_line(tmp_path):
 def test_lexico_error_explains_the_expected_header_format(tmp_path):
     p = tmp_path / "bad_vars.txt"
     p.write_text("**** *QUESTAO=Q1\n-*q1\nTexte de la réponse.\n", encoding="utf8")
-    job = run(corpus_lexico(str(p)))
+    job = run(corpus_lexico(str(p), lang="french"))
     res = wait_job(job["job_id"])
     assert res["status"] == "error", res.get("error")
     assert res["error_kind"] == "invalid_input"
@@ -135,23 +135,23 @@ def _corpus_dirs(corpus_path):
 
 
 def test_corpus_build_cache_is_reused_by_analyses(corpus_path):
-    build = run(corpus_build(str(corpus_path)))
+    build = run(corpus_build(str(corpus_path), lang="french"))
     before = _corpus_dirs(corpus_path)
-    stats = run(corpus_stats(str(corpus_path)))
+    stats = run(corpus_stats(str(corpus_path), lang="french"))
     assert stats["corpus"]["corpus_uuid"] == build["corpus_uuid"]
     assert _corpus_dirs(corpus_path) == before, "corpus_stats rebuilt the corpus"
 
 
 def test_segmentation_is_passed_from_build_to_analysis(corpus_path):
-    build = run(corpus_build(str(corpus_path), ucemethod=0, ucesize=60))
+    build = run(corpus_build(str(corpus_path), lang="french", ucemethod=0, ucesize=60))
     before = _corpus_dirs(corpus_path)
-    stats = run(corpus_stats(str(corpus_path), ucemethod=0, ucesize=60))
+    stats = run(corpus_stats(str(corpus_path), lang="french", ucemethod=0, ucesize=60))
     assert stats["corpus"]["corpus_uuid"] == build["corpus_uuid"]
     assert _corpus_dirs(corpus_path) == before, "corpus_stats ignored the built corpus"
 
 
 def test_similitude_rejects_unknown_forms(corpus_path):
-    job = run(corpus_similitude(str(corpus_path), forms=["zzz_not_a_form"]))
+    job = run(corpus_similitude(str(corpus_path), lang="french", forms=["zzz_not_a_form"]))
     res = wait_job(job["job_id"])
     assert res["status"] == "error"
     assert res["error_kind"] == "invalid_input"
@@ -165,44 +165,46 @@ def test_alceste_produces_classes_and_profiles(alceste):
 
 
 def test_labbe(corpus_path):
-    res = wait_job(run(corpus_labbe(str(corpus_path), mineff=3))["job_id"])
+    res = wait_job(run(corpus_labbe(str(corpus_path), lang="french", mineff=3))["job_id"])
     assert res["status"] == "done", res.get("error")
     assert res["result"]["distance_matrix"]
 
 
 def test_lexico(corpus_path):
-    res = wait_job(run(corpus_lexico(str(corpus_path), mineff=3))["job_id"])
+    res = wait_job(run(corpus_lexico(str(corpus_path), lang="french", mineff=3))["job_id"])
     assert res["status"] == "done", res.get("error")
     assert res["result"]["specificities_forms"]
 
 
 def test_wordcloud_and_subset(corpus_path):
-    full = run(corpus_wordcloud(str(corpus_path), mode=0, maxword=30, col_text=[10, 10, 80]))
+    full = run(corpus_wordcloud(str(corpus_path), lang="french", mode=0, maxword=30, col_text=[10, 10, 80]))
     assert full["graph"] and os.path.isfile(full["graph"])
-    subset = run(corpus_wordcloud(str(corpus_path), mode=0, forms=["travail"]))
+    subset = run(corpus_wordcloud(str(corpus_path), lang="french", mode=0, forms=["travail"]))
     assert subset["selected_count"] == 1
 
 
 def test_class_cloud(corpus_path, alceste):
-    by_freq = run(corpus_class_cloud(str(corpus_path), alceste["output_dir"], class_id=1, indice=0))
+    by_freq = run(corpus_class_cloud(str(corpus_path), alceste["output_dir"], lang="french", class_id=1, indice=0))
     assert by_freq["graph"]
-    by_chi2 = run(corpus_class_cloud(str(corpus_path), alceste["output_dir"], class_id=2, indice=1))
+    by_chi2 = run(corpus_class_cloud(str(corpus_path), alceste["output_dir"], lang="french", class_id=2, indice=1))
     assert by_chi2["graph"]
 
 
 def test_tgen_spec_filters_unknown_lemmas(corpus_path, tgen_path):
-    res = run(corpus_tgen_spec(str(corpus_path), str(tgen_path)))
+    res = run(corpus_tgen_spec(str(corpus_path), str(tgen_path), lang="french"))
     assert res["tables"]["specificities"]
     assert res["tgen"]["dropped_lemmas"], "fixture contains lemmas absent from the corpus"
 
 
 def test_tgen_prof_job(corpus_path, tgen_path, alceste):
-    res = wait_job(run(corpus_tgen_prof(str(corpus_path), alceste["output_dir"], str(tgen_path)))["job_id"])
+    res = wait_job(
+        run(corpus_tgen_prof(str(corpus_path), alceste["output_dir"], str(tgen_path), lang="french"))["job_id"]
+    )
     assert res["status"] == "done", res.get("error")
 
 
 def test_export_class_writes_file(corpus_path, alceste):
-    res = run(corpus_export_class(str(corpus_path), alceste["output_dir"], class_id=1))
+    res = run(corpus_export_class(str(corpus_path), alceste["output_dir"], lang="french", class_id=1))
     assert os.path.getsize(res["output"]) > 0
 
 
