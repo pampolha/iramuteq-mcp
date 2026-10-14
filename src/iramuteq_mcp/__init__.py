@@ -933,7 +933,7 @@ async def job_list() -> dict:
 async def job_prune(
     job_ids: Annotated[list[str] | None, "Specific finished jobs to delete (omit for all matching)"] = None,
     statuses: Annotated[
-        list[str] | None,
+        list[jobs.JobStatus] | None,
         "Statuses to prune: done, error, cancelled, interrupted (default: all finished)",
     ] = None,
     older_than_hours: Annotated[float | None, "Only prune jobs that ended at least this long ago"] = None,
@@ -941,9 +941,9 @@ async def job_prune(
     """Delete finished job records and their stored results. Running jobs are never pruned."""
     allowed = set(jobs.FINISHED)
     chosen = list(statuses) if statuses else list(jobs.FINISHED)
-    bad = sorted(set(chosen) - allowed)
+    bad = sorted(str(s) for s in set(chosen) - allowed)
     if bad:
-        raise ToolError(f"unknown statuses {bad}; choose from {sorted(allowed)}")
+        raise ToolError(f"unknown statuses {bad}; choose from {sorted(str(s) for s in allowed)}")
     older = None if older_than_hours is None else older_than_hours * 3600
     return await asyncio.to_thread(lambda: _job_manager().prune(job_ids, chosen, older))
 

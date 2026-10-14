@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from iramuteq_mcp import job_result, job_status
+from iramuteq_mcp.bridge.jobs import ACTIVE
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -22,7 +23,7 @@ def wait_job(job_id: str, timeout: float = 900) -> dict:
     t0 = time.time()
     while time.time() - t0 < timeout:
         st = run(job_status(job_id))
-        if st["status"] not in ("queued", "running"):
+        if st["status"] not in ACTIVE:
             return run(job_result(job_id))
         time.sleep(0.5)
     raise TimeoutError(f"job {job_id} still active after {timeout}s")

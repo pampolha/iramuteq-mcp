@@ -34,6 +34,7 @@ from iramuteq_mcp import (
     matrix_similitude,
     matrix_splitvar,
 )
+from iramuteq_mcp.bridge.jobs import JobStatus
 
 pytestmark = pytest.mark.requires_r
 
@@ -42,7 +43,7 @@ pytestmark = pytest.mark.requires_r
 def alceste(corpus_path):
     job = run(corpus_alceste(str(corpus_path), lang="french", nbcl_p1=2, max_actives=200))
     res = wait_job(job["job_id"])
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")
     return res["result"]
 
 
@@ -61,7 +62,7 @@ def test_stats_and_key_override(corpus_path):
 def test_unknown_key_override_is_rejected(corpus_path):
     job = run(corpus_lexico(str(corpus_path), lang="french", mineff=3, active_keys=["not_a_key"]))
     res = wait_job(job["job_id"])
-    assert res["status"] == "error"
+    assert res["status"] == JobStatus.ERROR
     assert res["error_kind"] == "invalid_input"
     assert "not_a_key" in res["error"]
 
@@ -124,7 +125,7 @@ def test_lexico_error_explains_the_expected_header_format(tmp_path):
     p.write_text("**** *QUESTAO=Q1\n-*q1\nTexte de la réponse.\n", encoding="utf8")
     job = run(corpus_lexico(str(p), lang="french"))
     res = wait_job(job["job_id"])
-    assert res["status"] == "error", res.get("error")
+    assert res["status"] == JobStatus.ERROR, res.get("error")
     assert res["error_kind"] == "invalid_input"
     assert "*QUESTAO=Q1" in res["error"]
     assert "**** *sexe_h" in res["error"]
@@ -153,7 +154,7 @@ def test_segmentation_is_passed_from_build_to_analysis(corpus_path):
 def test_similitude_rejects_unknown_forms(corpus_path):
     job = run(corpus_similitude(str(corpus_path), lang="french", forms=["zzz_not_a_form"]))
     res = wait_job(job["job_id"])
-    assert res["status"] == "error"
+    assert res["status"] == JobStatus.ERROR
     assert res["error_kind"] == "invalid_input"
     assert "zzz_not_a_form" in res["error"]
 
@@ -166,13 +167,13 @@ def test_alceste_produces_classes_and_profiles(alceste):
 
 def test_labbe(corpus_path):
     res = wait_job(run(corpus_labbe(str(corpus_path), lang="french", mineff=3))["job_id"])
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")
     assert res["result"]["distance_matrix"]
 
 
 def test_lexico(corpus_path):
     res = wait_job(run(corpus_lexico(str(corpus_path), lang="french", mineff=3))["job_id"])
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")
     assert res["result"]["specificities_forms"]
 
 
@@ -200,7 +201,7 @@ def test_tgen_prof_job(corpus_path, tgen_path, alceste):
     res = wait_job(
         run(corpus_tgen_prof(str(corpus_path), alceste["output_dir"], str(tgen_path), lang="french"))["job_id"]
     )
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")
 
 
 def test_export_class_writes_file(corpus_path, alceste):
@@ -253,6 +254,6 @@ def test_matrix_reinert_and_similitude_jobs(matrix_path):
     res = wait_job(
         run(matrix_reinert(str(matrix_path), active_columns=[1, 2, 3], supplementary_columns=[0], nbcl_p1=3))["job_id"]
     )
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")
     res = wait_job(run(matrix_similitude(str(matrix_path), columns=[1, 2, 3]))["job_id"])
-    assert res["status"] == "done", res.get("error")
+    assert res["status"] == JobStatus.DONE, res.get("error")

@@ -18,6 +18,7 @@ or ``cancelled`` (set together with status ``cancelled``).
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 import os
@@ -32,8 +33,24 @@ from . import patches
 
 log = logging.getLogger("iramuteq_mcp")
 
-FINISHED = ("done", "error", "cancelled", "interrupted")
-ACTIVE = ("queued", "running")
+
+class JobStatus(enum.StrEnum):
+    """Lifecycle state of a job.
+
+    StrEnum members compare, hash and serialise as their lowercase string, so
+    persisted JSON records and MCP responses keep their original shape.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
+
+
+FINISHED = (JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELLED, JobStatus.INTERRUPTED)
+ACTIVE = (JobStatus.QUEUED, JobStatus.RUNNING)
 
 # R reports allocation failures with these phrases (R >= 4.x and older builds).
 _OOM_MARKERS = (
@@ -70,7 +87,7 @@ class Job:
     id: str
     kind: str
     params: dict
-    status: str = "queued"  # queued | running | done | error | cancelled | interrupted
+    status: JobStatus = JobStatus.QUEUED
     phase: str = ""
     created: float = field(default_factory=time.time)
     started: float | None = None
@@ -141,7 +158,6 @@ class JobManager:
             raise ValueError("job record must be an object with id and kind")
         job = Job(id=rec["id"], kind=rec["kind"], params=rec.get("params", {}))
         for attr in (
-            "status",
             "phase",
             "created",
             "started",
@@ -152,8 +168,11 @@ class JobManager:
         ):
             if attr in rec:
                 setattr(job, attr, rec[attr])
+        if "status" in rec:
+            # raises for a value this build doesn't know → record skipped
+            job.status = JobStatus(rec["status"])
         if job.status in ACTIVE:
-            job.status = "interrupted"
+            job.status = JobStatus.INTERRUPTED
             job.error = "MCP server restarted while the job was active"
             job.ended = time.time()
             self._persist(job)
@@ -171,7 +190,7 @@ class JobManager:
         return job
 
     def _work(self, job: Job, runner: Callable[[Job], dict]) -> None:
-        job.status = "running"
+        job.status = JobStatus.RUNNING
         job.started = time.time()
         self._persist(job)
         patches.set_process_listener(lambda popen: setattr(job, "popen", popen))
@@ -182,21 +201,21 @@ class JobManager:
                 job.result = runner(job)
             if isinstance(job.result, dict) and job.result.get("output_dir"):
                 job.output_dir = job.result["output_dir"]
-            job.status = "done"
+            job.status = JobStatus.DONE
         except InterruptedError as exc:
-            job.status, job.error_kind, job.error = "cancelled", "cancelled", str(exc)
+            job.status, job.error_kind, job.error = JobStatus.CANCELLED, "cancelled", str(exc)
         except patches.RScriptError as exc:
             if job.cancel_requested:
-                job.status, job.error_kind = "cancelled", "cancelled"
+                job.status, job.error_kind = JobStatus.CANCELLED, "cancelled"
             else:
-                job.status, job.error_kind = "error", classify_r_error(exc)
+                job.status, job.error_kind = JobStatus.ERROR, classify_r_error(exc)
             job.error = f"{exc}\n{(exc.output or '')[-4000:]}".rstrip()
         except ValueError as exc:
-            job.status = "cancelled" if job.cancel_requested else "error"
+            job.status = JobStatus.CANCELLED if job.cancel_requested else JobStatus.ERROR
             job.error_kind = "cancelled" if job.cancel_requested else "invalid_input"
             job.error = str(exc)
         except Exception as exc:
-            job.status = "cancelled" if job.cancel_requested else "error"
+            job.status = JobStatus.CANCELLED if job.cancel_requested else JobStatus.ERROR
             job.error_kind = "cancelled" if job.cancel_requested else "internal_error"
             job.error = f"{type(exc).__name__}: {exc}"
             log.exception("job %s (%s) failed", job.id, job.kind)
@@ -249,11 +268,11 @@ class JobManager:
     def prune(
         self,
         job_ids: Iterable[str] | None = None,
-        statuses: Iterable[str] = FINISHED,
+        statuses: Iterable[str | JobStatus] = FINISHED,
         older_than_s: float | None = None,
     ) -> dict:
         """Delete finished job records. Active jobs are never pruned (cancel them first)."""
-        wanted_status = set(statuses)
+        wanted_status = {JobStatus(s) for s in statuses}
         now = time.time()
         removed, kept_active = [], []
         with self._lock:

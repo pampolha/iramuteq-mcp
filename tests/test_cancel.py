@@ -31,13 +31,13 @@ def test_cancel_terminates_running_r_process(tmp_path):
 
     process = record.popen  # keep a handle: the job clears it when it ends
     cancelled = run(job_cancel(job["job_id"]))
-    assert cancelled["status"] in ("cancelled", "running")
+    assert cancelled["status"] in (jobs_mod.JobStatus.CANCELLED, jobs_mod.JobStatus.RUNNING)
 
     deadline = time.time() + 60
     while record.status in jobs_mod.ACTIVE and time.time() < deadline:
         time.sleep(0.1)
-    assert record.status == "cancelled", record.error
+    assert record.status == jobs_mod.JobStatus.CANCELLED, record.error
     assert record.error_kind == "cancelled"
     assert process.poll() is not None, "R process still alive after cancel"
     assert process.returncode != 0, "R process should have been terminated, not finished"
-    assert run(job_status(job["job_id"]))["status"] == "cancelled"
+    assert run(job_status(job["job_id"]))["status"] == jobs_mod.JobStatus.CANCELLED

@@ -28,7 +28,7 @@ def test_done_job_keeps_result_and_output_dir(manager, tmp_path):
     out = str(tmp_path / "out")
     job = manager.submit("demo", {"x": 1}, lambda j: {"output_dir": out, "value": 42})
     done = wait_for(manager, job.id)
-    assert done.status == "done"
+    assert done.status == jobs.JobStatus.DONE
     assert done.output_dir == out
     assert manager.result(job.id)["result"] == {"output_dir": out, "value": 42}
 
@@ -51,7 +51,7 @@ def test_failures_are_classified(manager, exc, kind):
         raise exc
 
     job = wait_for(manager, manager.submit("demo", {}, runner).id)
-    assert job.status == "error"
+    assert job.status == jobs.JobStatus.ERROR
     assert job.error_kind == kind
     assert job.error
 
@@ -74,7 +74,7 @@ def test_cancel_before_start_never_runs_the_runner(manager):
     gate.set()
     wait_for(manager, first.id)
     done = wait_for(manager, queued.id)
-    assert done.status == "cancelled"
+    assert done.status == jobs.JobStatus.CANCELLED
     assert done.error_kind == "cancelled"
     assert ran == []
 
@@ -114,9 +114,16 @@ def test_prune_by_status_and_age(manager):
 
     # too recent for an age filter: nothing removed
     assert manager.prune(older_than_s=3600)["removed"] == []
-    # status filter: only errors
+    # status filter: only errors (plain strings and members both accepted)
     assert manager.prune(statuses=["error"])["removed"] == [bad.id]
     assert manager.get(ok.id) is not None
+
+
+def test_prune_status_filter_accepts_enum_members(manager):
+    bad = wait_for(manager, manager.submit("bad", {}, lambda j: 1 / 0).id)
+    wait_for(manager, manager.submit("ok", {}, lambda j: {}).id)
+
+    assert manager.prune(statuses=[jobs.JobStatus.ERROR])["removed"] == [bad.id]
 
 
 def test_orphaned_running_job_is_marked_interrupted(tmp_path):
@@ -134,10 +141,10 @@ def test_orphaned_running_job_is_marked_interrupted(tmp_path):
 
     manager = jobs.JobManager(str(d))
     job = manager.get("abc123")
-    assert job.status == "interrupted"
+    assert job.status == jobs.JobStatus.INTERRUPTED
     assert "restarted" in job.error
     persisted = json.loads((d / "abc123.json").read_text())
-    assert persisted["status"] == "interrupted"
+    assert persisted["status"] == jobs.JobStatus.INTERRUPTED
 
 
 def test_unreadable_record_is_skipped(tmp_path):
@@ -152,12 +159,21 @@ def test_structurally_invalid_records_are_skipped(tmp_path):
     d.mkdir()
     (d / "no-id.json").write_text(json.dumps({"kind": "demo", "status": "done"}))
     (d / "no-kind.json").write_text(json.dumps({"id": "abc123", "status": "done"}))
+    (d / "unknown-status.json").write_text(json.dumps({"id": "badst1", "kind": "demo", "status": "mystery"}))
     (d / "array.json").write_text(json.dumps(["not", "a", "job"]))
     (d / "scalar.json").write_text("42")
     (d / "good.json").write_text(json.dumps({"id": "good1", "kind": "demo", "status": "done"}))
 
     manager = jobs.JobManager(str(d))
     assert [j["job_id"] for j in manager.list()] == ["good1"]
+
+
+def test_status_is_a_job_status_member(manager):
+    job = wait_for(manager, manager.submit("demo", {}, lambda j: {}).id)
+    assert isinstance(job.status, jobs.JobStatus)
+    assert job.status is jobs.JobStatus.DONE
+    # string records still serialise as their plain value
+    assert json.loads(json.dumps(job.summary()))["status"] == "done"
 
 
 def test_analysis_lock_is_reentrant_and_exclusive():
