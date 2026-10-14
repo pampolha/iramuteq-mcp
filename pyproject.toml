@@ -1,6 +1,6 @@
 [project]
 name = "iramuteq-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "MCP server exposing IRaMuTeQ 0.8 as a headless analysis interface (thin facade over the IRaMuTeQ sources)"
 readme = "README.md"
 license = { text = "GPL-2.0-only" }
