@@ -8,6 +8,7 @@ from helpers import run, wait_job
 
 from iramuteq_mcp import (
     analysis_list,
+    analysis_read,
     corpus_alceste,
     corpus_build,
     corpus_class_cloud,
@@ -159,6 +160,47 @@ def test_similitude_rejects_unknown_forms(corpus_path):
     assert "zzz_not_a_form" in res["error"]
 
 
+def test_similitude_render_options_reach_the_ira(corpus_path):
+    """Every rendering argument (non-default on purpose) survives into Analyse.ira."""
+    job = run(
+        corpus_similitude(
+            str(corpus_path),
+            lang="french",
+            com=True,
+            communities=4,
+            halo=True,
+            label_e=True,
+            tvmin=6,
+            tvmax=20,
+            vcexmin=12,
+            vcexmax=28,
+            cexfromchi=True,
+            width=640,
+            height=480,
+            svg=True,
+        )
+    )
+    res = wait_job(job["job_id"])
+    assert res["status"] == JobStatus.DONE, res.get("error")
+    params = run(analysis_read(res["result"]["output_dir"]))["parameters"]
+    expected = {
+        "com": 1,
+        "communities": 4,
+        "halo": 1,
+        "label_e": 1,
+        "tvmin": 6,
+        "tvmax": 20,
+        "vcexmin": 12,
+        "vcexmax": 28,
+        "cexfromchi": 1,
+        "width": 640,
+        "height": 480,
+        "svg": 1,
+    }
+    assert {k: params.get(k) for k in expected} == expected
+    assert any(name.endswith(".svg") for name in res["result"]["artifacts"]), "svg=1 produced no .svg graph"
+
+
 def test_alceste_produces_classes_and_profiles(alceste):
     assert alceste["class_sizes"]
     assert alceste["profiles"]
@@ -182,6 +224,12 @@ def test_wordcloud_and_subset(corpus_path):
     assert full["graph"] and os.path.isfile(full["graph"])
     subset = run(corpus_wordcloud(str(corpus_path), lang="french", mode=0, forms=["travail"]))
     assert subset["selected_count"] == 1
+
+
+def test_wordcloud_exclude_forms(corpus_path):
+    full = run(corpus_wordcloud(str(corpus_path), lang="french", mode=0))
+    without = run(corpus_wordcloud(str(corpus_path), lang="french", mode=0, exclude_forms=["travail"]))
+    assert without["selected_count"] == full["selected_count"] - 1
 
 
 def test_class_cloud(corpus_path, alceste):
@@ -257,3 +305,39 @@ def test_matrix_reinert_and_similitude_jobs(matrix_path):
     assert res["status"] == JobStatus.DONE, res.get("error")
     res = wait_job(run(matrix_similitude(str(matrix_path), columns=[1, 2, 3]))["job_id"])
     assert res["status"] == JobStatus.DONE, res.get("error")
+
+
+def test_matrix_similitude_render_options_reach_the_ira(matrix_path):
+    """Non-default rendering arguments survive into the matrix's Analyse.ira."""
+    job = run(
+        matrix_similitude(
+            str(matrix_path),
+            columns=[1, 2, 3],
+            com=True,
+            communities=4,
+            halo=True,
+            label_e=False,
+            tvmin=7,
+            tvmax=21,
+            vcexmin=11,
+            vcexmax=26,
+            width=700,
+            height=500,
+        )
+    )
+    res = wait_job(job["job_id"])
+    assert res["status"] == JobStatus.DONE, res.get("error")
+    params = run(analysis_read(res["result"]["output_dir"]))["parameters"]
+    expected = {
+        "com": 1,
+        "communities": 4,
+        "halo": 1,
+        "label_e": 0,
+        "tvmin": 7,
+        "tvmax": 21,
+        "vcexmin": 11,
+        "vcexmax": 26,
+        "width": 700,
+        "height": 500,
+    }
+    assert {k: params.get(k) for k in expected} == expected

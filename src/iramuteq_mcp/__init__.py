@@ -97,6 +97,26 @@ async def _submit(kind: str, params: dict, runner) -> dict:
     return manager.submit(kind, params, runner).summary()
 
 
+# Rendering flags of the similitude graphs: IRaMuTeQ stores them as 0/1, the
+# way the GUI checkboxes write them.
+_SIMI_FLAGS = frozenset({"com", "halo", "label_e", "cexfromchi", "svg"})
+
+
+def _simi_render_options(**render) -> dict:
+    """Keep only the similitude rendering arguments the caller actually set.
+
+    ``None`` means "leave IRaMuTeQ's own default alone" (SimiTxt.makesimiparam
+    for a corpus, DoSimi's ``paramsimi`` for a matrix).  ``communities``
+    selects the community detection of ``simi.R`` (0..7); out of range no
+    branch matches, ``com`` stays unassigned and the R script dies, so the
+    range is enforced here.
+    """
+    comalgo = render.get("communities")
+    if comalgo is not None and (isinstance(comalgo, bool) or not isinstance(comalgo, int) or not 0 <= comalgo <= 7):
+        raise ToolError(f"communities must be an integer between 0 and 7, got {comalgo!r}")
+    return {k: int(v) if k in _SIMI_FLAGS else v for k, v in render.items() if v is not None}
+
+
 # ---------------------------------------------------------------------- status
 
 
@@ -365,6 +385,22 @@ async def corpus_similitude(
     layout: Annotated[int, "Graph layout (0=random, 1=circle, 2=Fruchterman-Reingold, ...)"] = 2,
     seuil: Annotated[float, "Edge threshold"] = 1,
     arbremax: Annotated[bool, "Reduce the graph to a maximum spanning tree"] = True,
+    com: Annotated[bool | None, "Colour the nodes by community (com=1); None = IRaMuTeQ default (off)"] = None,
+    communities: Annotated[
+        int | None,
+        "Community detection used while com is on: 0=edge-betweenness, 1=fastgreedy, 2=label propagation, "
+        "3=leading eigenvector, 4=multilevel, 5=optimal, 6=spinglass, 7=walktrap",
+    ] = None,
+    halo: Annotated[bool | None, "Draw a halo around the node labels; None = default (off)"] = None,
+    label_e: Annotated[bool | None, "Draw the edge labels; None = default (off)"] = None,
+    tvmin: Annotated[int | None, "Smallest label size scaled by frequency (default 5)"] = None,
+    tvmax: Annotated[int | None, "Largest label size scaled by frequency (default 30)"] = None,
+    vcexmin: Annotated[int | None, "Smallest label size, sent to R as value/10 (default 10)"] = None,
+    vcexmax: Annotated[int | None, "Largest label size, sent to R as value/10 (default 25)"] = None,
+    cexfromchi: Annotated[bool | None, "Size the labels by chi² instead of by frequency"] = None,
+    width: Annotated[int | None, "Graph image width in pixels (default 1000)"] = None,
+    height: Annotated[int | None, "Graph image height in pixels (default 1000)"] = None,
+    svg: Annotated[bool | None, "Write the graph as SVG instead of PNG"] = None,
     lem: Annotated[bool, "Lemmatise"] = True,
     encoding: Annotated[str, "File encoding"] = "utf8",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
@@ -373,8 +409,33 @@ async def corpus_similitude(
     ucemethod: SegmentationMethod = None,
     ucesize: SegmentationSize = None,
 ) -> dict:
-    """Start a similarity-graph analysis between active forms as a background job."""
-    options = {"coeff": coeff, "layout": layout, "seuil": seuil, "arbremax": int(arbremax)}
+    """Start a similarity-graph analysis between active forms as a background job.
+
+    The rendering arguments (com, communities, halo, label_e, tvmin, tvmax,
+    vcexmin, vcexmax, cexfromchi, width, height, svg) are optional: every one
+    left out keeps IRaMuTeQ's own default (SimiTxt.makesimiparam) and is
+    forwarded to the generated R script unchanged.
+    """
+    options = {
+        "coeff": coeff,
+        "layout": layout,
+        "seuil": seuil,
+        "arbremax": int(arbremax),
+        **_simi_render_options(
+            com=com,
+            communities=communities,
+            halo=halo,
+            label_e=label_e,
+            tvmin=tvmin,
+            tvmax=tvmax,
+            vcexmin=vcexmin,
+            vcexmax=vcexmax,
+            cexfromchi=cexfromchi,
+            width=width,
+            height=height,
+            svg=svg,
+        ),
+    }
 
     def runner(job):
         job.phase = "similarity matrix + graph (R)"
@@ -557,12 +618,56 @@ async def matrix_similitude(
     layout: Annotated[int, "Graph layout (0=random, 1=circle, 2=Fruchterman-Reingold, ...)"] = 2,
     seuil: Annotated[float, "Edge threshold"] = 1,
     arbremax: Annotated[bool, "Reduce the graph to a maximum spanning tree"] = True,
+    com: Annotated[bool | None, "Colour the nodes by community (com=1); None = IRaMuTeQ default (off)"] = None,
+    communities: Annotated[
+        int | None,
+        "Community detection used while com is on: 0=edge-betweenness, 1=fastgreedy, 2=label propagation, "
+        "3=leading eigenvector, 4=multilevel, 5=optimal, 6=spinglass, 7=walktrap",
+    ] = None,
+    halo: Annotated[bool | None, "Draw a halo around the node labels; None = default (off)"] = None,
+    label_e: Annotated[bool | None, "Draw the edge labels; None = matrix default (on)"] = None,
+    tvmin: Annotated[int | None, "Smallest label size scaled by frequency (default 5)"] = None,
+    tvmax: Annotated[int | None, "Largest label size scaled by frequency (default 30)"] = None,
+    vcexmin: Annotated[int | None, "Smallest label size, sent to R as value/10 (matrix default 8)"] = None,
+    vcexmax: Annotated[int | None, "Largest label size, sent to R as value/10 (default 25)"] = None,
+    cexfromchi: Annotated[
+        bool | None,
+        "Size the labels by chi²; needs a chi² table (a profiled/cluster run) — plain runs raise an R error",
+    ] = None,
+    width: Annotated[int | None, "Graph image width in pixels (matrix default 800)"] = None,
+    height: Annotated[int | None, "Graph image height in pixels (matrix default 800)"] = None,
+    svg: Annotated[bool | None, "Write the graph as SVG instead of PNG"] = None,
     encoding: Annotated[str, "File encoding"] = "utf-8",
     colsep: Annotated[str, "Field separator for csv"] = ";",
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
 ) -> dict:
-    """Start a similarity-graph analysis on matrix columns as a background job."""
-    options = {"coeff": coeff, "layout": layout, "seuil": seuil, "arbremax": int(arbremax)}
+    """Start a similarity-graph analysis on matrix columns as a background job.
+
+    The rendering arguments (com, communities, halo, label_e, tvmin, tvmax,
+    vcexmin, vcexmax, cexfromchi, width, height, svg) are optional: every one
+    left out keeps DoSimi's own default and reaches the generated R script
+    unchanged.
+    """
+    options = {
+        "coeff": coeff,
+        "layout": layout,
+        "seuil": seuil,
+        "arbremax": int(arbremax),
+        **_simi_render_options(
+            com=com,
+            communities=communities,
+            halo=halo,
+            label_e=label_e,
+            tvmin=tvmin,
+            tvmax=tvmax,
+            vcexmin=vcexmin,
+            vcexmax=vcexmax,
+            cexfromchi=cexfromchi,
+            width=width,
+            height=height,
+            svg=svg,
+        ),
+    }
 
     def runner(job):
         job.phase = "similarity matrix + graph (R)"
@@ -704,6 +809,9 @@ async def corpus_wordcloud(
     forms: Annotated[
         list[str] | None, "Optional subset of lemmas to draw (must be active/supplementary per mode)"
     ] = None,
+    exclude_forms: Annotated[
+        list[str] | None, "Lemmas to drop from the cloud instead (mutually exclusive with forms)"
+    ] = None,
     maxword: Annotated[int, "Maximum number of words drawn"] = 100,
     width: Annotated[int, "Image width (px)"] = 800,
     height: Annotated[int, "Image height (px)"] = 800,
@@ -719,7 +827,13 @@ async def corpus_wordcloud(
     ucemethod: SegmentationMethod = None,
     ucesize: SegmentationSize = None,
 ) -> dict:
-    """Word cloud of the corpus forms (IRaMuTeQ WordCloud)."""
+    """Word cloud of the corpus forms (IRaMuTeQ WordCloud).
+
+    ``forms`` draws only the listed lemmas, ``exclude_forms`` draws all but
+    the listed ones; the two are mutually exclusive.
+    """
+    if forms and exclude_forms:
+        raise ToolError("forms and exclude_forms are mutually exclusive")
     options = {
         "maxword": maxword,
         "width": width,
@@ -735,6 +849,7 @@ async def corpus_wordcloud(
         path,
         mode,
         forms,
+        exclude_forms,
         options,
         lang,
         encoding,

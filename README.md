@@ -43,8 +43,8 @@ phase ends, so the job may still finish and report `done`.
 | `corpus_alceste` *(job)* | Reinert/ALCESTE descending hierarchical classification |
 | `corpus_lexico` *(job)* | Specificities of forms/types by one `*variable`'s modalities |
 | `corpus_labbe` *(job)* | Labbé lexical distance between the modalities of one variable |
-| `corpus_similitude` *(job)* | Similarity graph between active forms (27 indices, MST, layouts) |
-| `corpus_wordcloud` | Word cloud of active / supplementary / both forms, optional subset |
+| `corpus_similitude` *(job)* | Similarity graph between active forms (27 indices, MST, layouts, community/halo/label-size rendering, PNG or SVG) |
+| `corpus_wordcloud` | Word cloud of active / supplementary / both forms, optional subset or exclusions |
 | `corpus_class_cloud` | Word cloud of one ALCESTE class, weighted by frequency or chi² |
 | `corpus_tgen_spec` | Specificity of Tgen groups (usual segments) across modalities |
 | `corpus_tgen_prof` *(job)* | Tgen group profiles over the classes of an ALCESTE run |
@@ -70,7 +70,7 @@ phase ends, so the job may still finish and report `done`.
 | `matrix_splitvar` | One matrix per modality of a column |
 | `matrix_proto` | Prototypical analysis: words characterised by frequency and mean rank |
 | `matrix_reinert` *(job)* | Reinert classification on rows |
-| `matrix_similitude` *(job)* | Similarity graph on modalities |
+| `matrix_similitude` *(job)* | Similarity graph on modalities (same rendering options as `corpus_similitude`) |
 
 **Jobs & results**
 

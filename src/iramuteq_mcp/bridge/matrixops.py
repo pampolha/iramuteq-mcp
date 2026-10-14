@@ -42,6 +42,7 @@ _SIMI_DEFAULTS = {
     "vcex": 0,
     "vcexmin": 8,
     "vcexmax": 25,
+    "cexfromchi": False,
     "cex": 10,
     "seuil_ok": 0,
     "seuil": 1,
@@ -307,7 +308,8 @@ def run_matrix_similitude(
     patches.sweep()
 
     paramsimi = dict(_SIMI_DEFAULTS)
-    paramsimi.update({k: v for k, v in (options or {}).items() if k in _SIMI_DEFAULTS})
+    # None in options means "keep DoSimi's default", as in textops.run_similitude
+    paramsimi.update({k: v for k, v in (options or {}).items() if k in _SIMI_DEFAULTS and v is not None})
     paramsimi["first"] = True
 
     class HeadlessSimi(DoSimi):

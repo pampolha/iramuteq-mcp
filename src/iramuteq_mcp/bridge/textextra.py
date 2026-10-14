@@ -6,7 +6,8 @@ Plumbing (glue only, no analysis logic is duplicated):
   ``SelectColumn(dlg=True)`` inside ``doanalyse``.  The subclasses below fill
   the options from tool arguments and return ``wx.ID_OK``; the
   ``SelectColumn`` call is routed to its own ``dlg=False`` branch, which
-  writes ``selected.csv`` (all words, or the ``forms`` requested).
+  writes ``selected.csv`` (all words, the ``forms`` requested, or all but the
+  ``exclude_forms`` ones).
 * Labbé and Tgen need the same single-variable modality selection as Lexico.
 """
 
@@ -36,11 +37,22 @@ def _install_headless_selectcolumn() -> None:
     def headless_select(parent, dictcol, actives, pathout, selected=None, dlg=False):
         sel = selected
         forms = getattr(_tls, "forms", None)
+        excludes = getattr(_tls, "exclude_forms", None)
+        if sel is None and forms and excludes:
+            raise ValueError("forms and exclude_forms are mutually exclusive")
         if sel is None and forms:
             missing = [f for f in forms if f not in actives]
             if missing:
                 raise ValueError(f"forms not available for this selection: {missing}")
             sel = [actives.index(f) for f in forms]
+        elif sel is None and excludes:
+            missing = [f for f in excludes if f not in actives]
+            if missing:
+                raise ValueError(f"exclude_forms not available for this selection: {missing}")
+            drop = set(excludes)
+            sel = [i for i, form in enumerate(actives) if form not in drop]
+            if not sel:
+                raise ValueError("exclude_forms would drop every form of this selection")
         return RealSelectColumn(parent, dictcol, actives, pathout, selected=sel, dlg=False)
 
     textwordcloud.SelectColumn = headless_select
@@ -185,6 +197,7 @@ def run_wordcloud(
     corpus_path: str,
     mode: int = 0,
     forms: list[str] | None = None,
+    exclude_forms: list[str] | None = None,
     options: dict | None = None,
     lang: str = "french",
     encoding: str = "utf8",
@@ -195,11 +208,16 @@ def run_wordcloud(
     ucemethod: int | None = None,
     ucesize: int | None = None,
 ) -> dict:
-    """Word cloud of active (0), supplementary (1) or all (2) forms."""
+    """Word cloud of active (0), supplementary (1) or all (2) forms.
+
+    ``forms`` picks a subset, ``exclude_forms`` drops one (mutually exclusive).
+    """
     from textwordcloud import WordCloud
 
     if mode not in (0, 1, 2):
         raise ValueError("mode must be 0 (active), 1 (supplementary) or 2 (both)")
+    if forms and exclude_forms:
+        raise ValueError("forms and exclude_forms are mutually exclusive")
     _install_headless_selectcolumn()
     opts = _cloud_options(options)
     corpus, csum = textops.get_corpus(
@@ -214,11 +232,13 @@ def run_wordcloud(
         make_option = _make_cloud_option_filler(opts, mode=mode)
 
     _tls.forms = forms
+    _tls.exclude_forms = exclude_forms
     try:
         with textops.key_overrides(active_keys, supplementary_keys):
             obj = HeadlessWordCloud(bootstrap.get(), corpus, parametres=parametres, dlg=False, lemdial=False)
     finally:
         _tls.forms = None
+        _tls.exclude_forms = None
     from . import results
 
     return results.parse_wordcloud(obj, csum, cluster=None)
