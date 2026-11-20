@@ -22,6 +22,7 @@ log = logging.getLogger("iramuteq_mcp")
 
 _matrix_cache: dict[str, object] = {}
 _cache_lock = threading.Lock()
+_open_options: dict[str, dict] = {}
 
 # graph options for similitude (values as produced by DoSimi.make_param defaults)
 _SIMI_DEFAULTS = {
@@ -85,8 +86,8 @@ def _matrix_key(path: str, opts: dict) -> str:
 def open_matrix(
     matrix_path: str,
     filetype: str | None = None,
-    encoding: str = "utf-8",
-    colsep: str = ";",
+    encoding: str | None = "utf-8",
+    colsep: str | None = ";",
     sheetnb: int = 1,
     firstrowiscolnames: bool = True,
     firstcolisrownames: bool = True,
@@ -102,6 +103,8 @@ def open_matrix(
     path = os.path.abspath(matrix_path)
     if not os.path.isfile(path):
         raise FileNotFoundError(f"matrix not found: {path}")
+    encoding = encoding or "utf-8"
+    colsep = colsep or ";"
     if filetype is None:
         ext = os.path.splitext(path)[1].lower()
         filetype = {".xls": "xls", ".xlsx": "xls", ".ods": "ods"}.get(ext, "csv")
@@ -116,6 +119,7 @@ def open_matrix(
     }
     key = _matrix_key(path, opts)
     with _cache_lock:
+        _open_options[path] = opts
         cached = _matrix_cache.get(key)
         if cached is not None:
             return cached
@@ -149,7 +153,11 @@ def matrix_summary(tableau) -> dict:
 
 
 def _get_matrix(matrix_path: str, **kwargs):
-    return open_matrix(matrix_path, **kwargs)
+    """Open with the options of the last matrix_open of this path, overridden by any non-None kwargs."""
+    given = {k: v for k, v in kwargs.items() if v is not None}
+    with _cache_lock:
+        remembered = dict(_open_options.get(os.path.abspath(matrix_path), {}))
+    return open_matrix(matrix_path, **{**remembered, **given})
 
 
 # ------------------------------------------------------------------ analyses
@@ -348,7 +356,17 @@ def run_matrix_similitude(
     parametres = {"type": "simimatrix", **paramsimi}
     if output_dir:
         parametres["pathout"] = output_dir
-    obj = HeadlessSimi(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    saved = {a: getattr(tableau, a, None) for a in ("selected_col", "actives", "listactives")}
+    had_mineff, mineff = "mineff" in tableau.parametres, tableau.parametres.get("mineff")
+    try:
+        obj = HeadlessSimi(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    finally:
+        for attr, value in saved.items():
+            setattr(tableau, attr, value)
+        if had_mineff:
+            tableau.parametres["mineff"] = mineff
+        else:
+            tableau.parametres.pop("mineff", None)
     from . import results
 
     return results.parse_similitude(obj, msum)
@@ -357,8 +375,8 @@ def run_matrix_similitude(
 def run_freqmulti(
     matrix_path: str,
     columns: list[int],
-    encoding: str = "utf-8",
-    colsep: str = ";",
+    encoding: str | None = None,
+    colsep: str | None = None,
 ) -> dict:
     """Frequencies of multi-valued columns (IRaMuTeQ FreqMultiple)."""
     from tabfrequence import FreqMultiple
@@ -382,8 +400,8 @@ def run_freqmulti(
 def run_splitvar(
     matrix_path: str,
     column: int,
-    encoding: str = "utf-8",
-    colsep: str = ";",
+    encoding: str | None = None,
+    colsep: str | None = None,
 ) -> dict:
     """Split a matrix into one matrix per modality of ``column`` (IRaMuTeQ SplitMatrixFromVar).
 
@@ -417,8 +435,8 @@ def run_proto(
     limfreq: int | None = None,
     limrang: int | None = None,
     typegraph: str = "classical",
-    encoding: str = "utf-8",
-    colsep: str = ";",
+    encoding: str | None = None,
+    colsep: str | None = None,
 ) -> dict:
     """Prototypical analysis: words (paired with their ranks) — IRaMuTeQ Prototypical.
 

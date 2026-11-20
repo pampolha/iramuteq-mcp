@@ -23,7 +23,7 @@ from . import wxstub
 
 log = logging.getLogger("iramuteq_mcp")
 
-DEFAULT_IRAMUTEQ_PATH = "/home/pampolha/Tools/iramuteq-0.8alpha7-sources"
+DEFAULT_IRAMUTEQ_PATH = os.path.expanduser("~/Tools/iramuteq-0.8alpha7-sources")
 
 _ctx: IraContext | None = None
 _init_lock = threading.Lock()
@@ -99,7 +99,7 @@ class IraContext:
         self.history = self._open_history()
         self.lexique: dict[str, list[str]] = {}
         self.expressions: dict[str, list[str]] = {}
-        self._lexicon_langs: set[str] = set()
+        self._lexicon_lang: str | None = None
         self.tree = NoOpTree()
         self.filename = ""
         self.input_path = ""
@@ -149,15 +149,16 @@ class IraContext:
     # ------------------------------------------------------------------ lexicon
 
     def load_lexicon(self, lang: str = "french") -> None:
-        """Load Lexique 3 + expression dictionary for ``lang`` (cached)."""
-        if lang in self._lexicon_langs:
+        """Load Lexique 3 + expression dictionary for ``lang``.
+        """
+        if lang == self._lexicon_lang:
             return
         from functions import ReadDicoAsDico, ReadLexique
 
         ReadLexique(self, lang=lang)
         exp_path = self.DictPath.get(f"{lang}_exp")
         self.expressions = ReadDicoAsDico(exp_path) if exp_path and os.path.exists(exp_path) else {}
-        self._lexicon_langs.add(lang)
+        self._lexicon_lang = lang
 
 
 def init(iramuteq_path: str | None = None) -> IraContext:

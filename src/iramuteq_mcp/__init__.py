@@ -44,6 +44,9 @@ SegmentationSize = Annotated[
     "Target UCE size (chars or words depending on ucemethod); None = corpus.cfg default",
 ]
 
+MatrixEncoding = Annotated[str | None, "File encoding (default: as given to matrix_open, else utf-8)"]
+MatrixColsep = Annotated[str | None, "Field separator for csv (default: as given to matrix_open, else ';')"]
+
 R_PACKAGES = [
     "ca",
     "gee",
@@ -351,6 +354,8 @@ async def corpus_lexico(
     ucesize: SegmentationSize = None,
 ) -> dict:
     """Start a 'Comme Lexico' specificities analysis as a background job (returns job_id)."""
+    if indice not in ("hypergeo", "chi2"):
+        raise ToolError("indice must be 'hypergeo' or 'chi2'")
     options = {"mineff": mineff, "indice": indice}
 
     def runner(job):
@@ -495,8 +500,8 @@ async def matrix_frequencies(
     path: Annotated[str, "Absolute path to the table"],
     columns: Annotated[list[int], "0-based column indices to tabulate"],
     include_na: Annotated[bool, "Count NA values"] = False,
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """Frequency table + barplot per selected column (IRaMuTeQ Frequences)."""
     return await _sync(
@@ -515,8 +520,8 @@ async def matrix_chi2(
     path: Annotated[str, "Absolute path to the table"],
     columns_a: Annotated[list[int], "0-based column indices (first variable set)"],
     columns_b: Annotated[list[int], "0-based column indices (second variable set)"],
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """Chi-square independence tests between two column sets (IRaMuTeQ ChiSquare)."""
     return await _sync(
@@ -535,8 +540,8 @@ async def matrix_mcnemar(
     path: Annotated[str, "Absolute path to the table"],
     columns_a: Annotated[list[int], "0-based column indices (first variable set)"],
     columns_b: Annotated[list[int], "0-based column indices (second variable set)"],
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """McNemar tests for paired categorical columns (IRaMuTeQ McNemar)."""
     return await _sync(matrixops.run_mcnemar, path, columns_a, columns_b, None, encoding=encoding, colsep=colsep)
@@ -546,8 +551,8 @@ async def matrix_mcnemar(
 async def matrix_freqmulti(
     path: Annotated[str, "Absolute path to the table"],
     columns: Annotated[list[int], "0-based columns whose cells may hold several values"],
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """Frequencies of multi-valued columns (IRaMuTeQ FreqMultiple)."""
     return await _sync(matrixops.run_freqmulti, path, columns, encoding=encoding, colsep=colsep)
@@ -557,8 +562,8 @@ async def matrix_freqmulti(
 async def matrix_splitvar(
     path: Annotated[str, "Absolute path to the table"],
     column: Annotated[int, "0-based column whose modalities split the table"],
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """Split the table into one matrix per modality of a column (IRaMuTeQ SplitMatrixFromVar)."""
     return await _sync(matrixops.run_splitvar, path, column, encoding=encoding, colsep=colsep)
@@ -572,8 +577,8 @@ async def matrix_reinert(
     formatted: Annotated[bool, "ALCESTE-formatted table (*modalities are supplementary)"] = False,
     nbcl_p1: Annotated[int, "Terminal classes of phase 1"] = 10,
     mincl: Annotated[int, "Minimum rows per class"] = 2,
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
 ) -> dict:
     """Start a Reinert classification on the matrix as a background job (returns job_id)."""
@@ -637,8 +642,8 @@ async def matrix_similitude(
     width: Annotated[int | None, "Graph image width in pixels (matrix default 800)"] = None,
     height: Annotated[int | None, "Graph image height in pixels (matrix default 800)"] = None,
     svg: Annotated[bool | None, "Write the graph as SVG instead of PNG"] = None,
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
     output_dir: Annotated[str | None, "Optional explicit output directory"] = None,
 ) -> dict:
     """Start a similarity-graph analysis on matrix columns as a background job.
@@ -902,8 +907,8 @@ async def matrix_proto(
     limfreq: Annotated[int | None, "Frequency limit for the plot (omit = no limit)"] = None,
     limrang: Annotated[int | None, "Rank limit for the plot (omit = no limit)"] = None,
     typegraph: Annotated[str, "'classical' or 'plan'"] = "classical",
-    encoding: Annotated[str, "File encoding"] = "utf-8",
-    colsep: Annotated[str, "Field separator for csv"] = ";",
+    encoding: MatrixEncoding = None,
+    colsep: MatrixColsep = None,
 ) -> dict:
     """Prototypical analysis: words characterised by frequency and mean rank (IRaMuTeQ)."""
     return await _sync(

@@ -330,8 +330,7 @@ def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
     "ecrire" never matches a UCE containing "écrit".  Each hit reports the
     form that matched.
     """
-    if not corpus.lems:
-        _prep_lemmas(corpus)
+    _prep_lemmas(corpus)
     if lem not in corpus.lems:
         return {"lem": lem, "found": False, "hits": [], "hint": "lemma not in corpus (try corpus_stats)"}
     if corpus.idformes is None:

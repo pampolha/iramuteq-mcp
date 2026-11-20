@@ -7,26 +7,29 @@ directory before and after the run.
 
 from __future__ import annotations
 
-import hashlib
 import os
 
 from . import textops
 
 
-def _listing(directory: str) -> dict[str, str]:
-    """Snapshot: file name -> content digest (timestamps are too coarse to rely on)."""
+def _listing(directory: str) -> dict[str, tuple[int, int]]:
+    """Snapshot: file name -> (size, mtime_ns), without reading file contents.
+
+    Files the splitters rewrite with identical content and timestamp are still
+    reported through each caller's ``expected`` set.
+    """
     if not os.path.isdir(directory):
         return {}
     out = {}
-    for n in os.listdir(directory):
-        p = os.path.join(directory, n)
-        if os.path.isfile(p):
-            with open(p, "rb") as f:
-                out[n] = hashlib.sha1(f.read()).hexdigest()
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if entry.is_file():
+                st = entry.stat()
+                out[entry.name] = (st.st_size, st.st_mtime_ns)
     return out
 
 
-def _created(directory: str, before: dict[str, str]) -> list[str]:
+def _created(directory: str, before: dict[str, tuple[int, int]]) -> list[str]:
     """Files that are new or whose content changed since the snapshot."""
     after = _listing(directory)
     changed = [n for n, digest in after.items() if before.get(n) != digest]
@@ -83,7 +86,9 @@ def extract_themes(path: str, themes: list[str], encoding: str = "utf8") -> dict
     before = _listing(base)
     SplitFromThem({"filein": src, "them": them, "encodein": encoding, "encodeout": "utf8"})
     out = os.path.join(base, "_".join(t.replace("-*", "") for t in them))
-    if not os.path.isfile(out):
+    if not os.path.isfile(out) or os.path.getsize(out) == 0:
+        if os.path.isfile(out):
+            os.remove(out)
         raise RuntimeError(f"no text found for themes {themes}")
     return {"input": src, "themes": them, "created": _created(base, before), "output": out}
 

@@ -136,7 +136,7 @@ class JobManager:
 
     def _persist(self, job: Job) -> None:
         try:
-            rec = {"id": job.id, **job.summary()}
+            rec = {"id": job.id, **job.summary(), "result": job.result}
             with open(self._record_path(job.id), "w", encoding="utf8") as f:
                 json.dump(rec, f, indent=2, default=str)
         except Exception:
@@ -165,6 +165,7 @@ class JobManager:
             "output_dir",
             "error",
             "error_kind",
+            "result",
         ):
             if attr in rec:
                 setattr(job, attr, rec[attr])
@@ -190,14 +191,14 @@ class JobManager:
         return job
 
     def _work(self, job: Job, runner: Callable[[Job], dict]) -> None:
-        job.status = JobStatus.RUNNING
-        job.started = time.time()
-        self._persist(job)
         patches.set_process_listener(lambda popen: setattr(job, "popen", popen))
         try:
             with _ANALYSIS_LOCK:
                 if job.cancel_requested:
                     raise InterruptedError("cancelled before start")
+                job.status = JobStatus.RUNNING
+                job.started = time.time()
+                self._persist(job)
                 job.result = runner(job)
             if isinstance(job.result, dict) and job.result.get("output_dir"):
                 job.output_dir = job.result["output_dir"]
