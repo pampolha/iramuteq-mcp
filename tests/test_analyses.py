@@ -48,9 +48,6 @@ def alceste(corpus_path):
     return res["result"]
 
 
-# ----------------------------------------------------------------- corpus
-
-
 def test_keys_report_defaults():
     assert run(corpus_keys())["nom"] == "active"
 
@@ -273,9 +270,6 @@ def test_history_is_reachable():
     assert "corpora" in res
     assert "history_file" in res
     assert "jobs" not in res
-
-
-# ----------------------------------------------------------------- matrix
 
 
 def test_matrix_frequencies_and_freqmulti(matrix_path):

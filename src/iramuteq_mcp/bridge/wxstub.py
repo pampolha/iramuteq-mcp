@@ -95,7 +95,7 @@ class _StubModule(types.ModuleType):
 class _Loader(importlib.abc.Loader):
     def create_module(self, spec):
         mod = _StubModule(spec.name)
-        mod.__path__ = []  # mark as package so submodules resolve
+        mod.__path__ = []
         mod.__iramuteq_wxstub__ = True
         return mod
 

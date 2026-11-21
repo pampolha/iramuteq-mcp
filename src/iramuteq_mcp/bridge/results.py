@@ -34,9 +34,6 @@ def _read_csv(path: str, sep: str = ";") -> list[list[str]]:
         return [row for row in csv.reader(f, delimiter=sep)]
 
 
-# ----------------------------------------------------------------------- stat
-
-
 def parse_stats(obj, corpus_summary: dict) -> dict:
     res = getattr(obj, "result", {}) or {}
     outdir = obj.parametres.get("pathout")
@@ -65,10 +62,6 @@ def parse_stats(obj, corpus_summary: dict) -> dict:
     }
 
 
-# -------------------------------------------------------------------- alceste
-
-# fields produced by functions.treat_line_alceste for a profiles.csv row
-# (row columns: rank;eff;freq%;chi2;form;p — add_type appends the POS slot)
 _PROFILE_FIELDS = ["index", "rank", "eff", "freq_percent", "chi2", "typo", "form", "p"]
 
 
@@ -105,6 +98,11 @@ def _class_sizes(uce_csv: str) -> dict:
     return sizes
 
 
+def _out(outdir: str | None, name: str) -> str:
+    """Path of ``name`` inside ``outdir``, or "" when the analysis has no output directory."""
+    return os.path.join(outdir, name) if outdir else ""
+
+
 def _maybe(path: str) -> str | None:
     return path if path and os.path.isfile(path) else None
 
@@ -116,6 +114,17 @@ def _read_ira(path: str) -> dict:
         return DoConf(path).getoptions()
     except Exception:
         return {}
+
+
+def _reinert_outputs(po) -> dict:
+    """Class sizes, profiles, AFC factors and chi² table shared by the text and matrix Reinert results."""
+    return {
+        "class_sizes": _class_sizes(po["uce"]),
+        "profiles": _read_profiles(po["profile"]),
+        "antiprofiles": _read_profiles(po["antiprofile"]),
+        "afc_factors": _read_csv(po["afc_facteur"]),
+        "chisq_table": _read_csv(po["chisqtable"])[:50],
+    }
 
 
 def parse_alceste(obj, corpus_summary: dict) -> dict:
@@ -142,11 +151,7 @@ def parse_alceste(obj, corpus_summary: dict) -> dict:
                 "time",
             )
         },
-        "class_sizes": _class_sizes(po["uce"]),
-        "profiles": _read_profiles(po["profile"]),
-        "antiprofiles": _read_profiles(po["antiprofile"]),
-        "afc_factors": _read_csv(po["afc_facteur"]),
-        "chisq_table": _read_csv(po["chisqtable"])[:50],
+        **_reinert_outputs(po),
         "graphs": {
             "afc": _maybe(po["AFC2DL_OUT"]),
             "afc_sup": _maybe(po["AFC2DSL_OUT"]),
@@ -159,30 +164,20 @@ def parse_alceste(obj, corpus_summary: dict) -> dict:
     }
 
 
-# --------------------------------------------------------------------- lexico
-
-
 def parse_lexico(obj, corpus_summary: dict) -> dict:
     outdir = obj.parametres.get("pathout")
-
-    # Lexico writes via StatTxtPathOut-style absolute names (with .csv)
-    def j(name: str) -> str:
-        return os.path.join(outdir, name) if outdir else ""
 
     return {
         "analysis": "lexico",
         "output_dir": outdir,
         "corpus": corpus_summary,
         "parameters": {k: obj.parametres.get(k) for k in ("mineff", "indice", "typeformes", "clnb", "time")},
-        "specificities_forms": _read_csv(j("tablespecf.csv"))[:100],
-        "specificities_types": _read_csv(j("tablespect.csv"))[:100],
-        "banalites": _read_csv(j("banalites.csv"))[:50],
-        "contingency_forms": _read_csv(j("tableafcm.csv"))[:50],
+        "specificities_forms": _read_csv(_out(outdir, "tablespecf.csv"))[:100],
+        "specificities_types": _read_csv(_out(outdir, "tablespect.csv"))[:100],
+        "banalites": _read_csv(_out(outdir, "banalites.csv"))[:50],
+        "contingency_forms": _read_csv(_out(outdir, "tableafcm.csv"))[:50],
         "artifacts": _artifacts(outdir),
     }
-
-
-# ---------------------------------------------------------------- similitude
 
 
 def parse_similitude(obj, corpus_summary: dict) -> dict:
@@ -206,9 +201,6 @@ def parse_similitude(obj, corpus_summary: dict) -> dict:
         "graphs": [[str(v) for v in row] for row in graphs],
         "artifacts": _artifacts(outdir),
     }
-
-
-# ------------------------------------------------------------- matrix results
 
 
 def _read_tsv(path: str) -> list[list[str]]:
@@ -276,16 +268,17 @@ def parse_chi2(obj, matrix_summary: dict) -> dict:
             current = None
             continue
         cells = [c for c in row[1:] if c != ""]
+        distinct = set(cells)
         if (
             len(cells) >= 2
-            and len(set(cells)) == 1
+            and len(distinct) == 1
             and cells[0].startswith("*")
             and cells[0].endswith("*")
             and len(cells[0]) > 2
         ):
             current = tags.setdefault(cells[0].strip("*"), [])
             continue
-        if cells and set(cells) == {"fin_analyse"}:
+        if distinct == {"fin_analyse"}:
             current = None
             continue
         if current is None:
@@ -315,11 +308,7 @@ def parse_matrix_reinert(obj, matrix_summary: dict) -> dict:
         "parameters": {
             k: obj.parametres.get(k) for k in ("nbcl_p1", "mincl", "listact", "listsup", "formatted", "clnb", "time")
         },
-        "class_sizes": _class_sizes(po["uce"]),
-        "profiles": _read_profiles(po["profile"]),
-        "antiprofiles": _read_profiles(po["antiprofile"]),
-        "afc_factors": _read_csv(po["afc_facteur"]),
-        "chisq_table": _read_csv(po["chisqtable"])[:50],
+        **_reinert_outputs(po),
         "graphs": {
             "afc": _maybe(po["AFC2DL_OUT"]),
             "afc_classes": _maybe(po["AFC2DCL_OUT"]),
@@ -327,9 +316,6 @@ def parse_matrix_reinert(obj, matrix_summary: dict) -> dict:
         },
         "artifacts": _artifacts(outdir),
     }
-
-
-# ------------------------------------------------------------- generic reader
 
 
 def read_analysis(path: str) -> dict:
@@ -356,20 +342,15 @@ def list_history() -> dict:
     from . import bootstrap
 
     ira = bootstrap.get()
-    corpora = []
-    for entry in ira.history.history:
-        item = dict(entry)
-        item["analyses"] = [dict(a) for a in entry.get("analyses", [])]
-        corpora.append(item)
-    matrices = []
-    for entry in ira.history.matrix:
-        item = dict(entry)
-        item["analyses"] = [dict(a) for a in entry.get("analyses", [])]
-        matrices.append(item)
-    return {"corpora": corpora, "matrices": matrices, "history_file": ira.history.filein}
 
+    def copy_entries(entries):
+        return [{**entry, "analyses": [dict(a) for a in entry.get("analyses", [])]} for entry in entries]
 
-# ------------------------------------------------- package A/B result parsers
+    return {
+        "corpora": copy_entries(ira.history.history),
+        "matrices": copy_entries(ira.history.matrix),
+        "history_file": ira.history.filein,
+    }
 
 
 def parse_freqmulti(obj, matrix_summary: dict) -> dict:
@@ -394,16 +375,13 @@ def _trailing_number(name: str) -> int:
 def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
     outdir = obj.parametres.get("pathout")
     created = {}
+    entries = os.listdir(outdir) if outdir and os.path.isdir(outdir) else []
     for mod in modalities:
-        dirs = (
-            [
-                d
-                for d in os.listdir(outdir)
-                if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
-            ]
-            if outdir and os.path.isdir(outdir)
-            else []
-        )
+        dirs = [
+            d
+            for d in entries
+            if d.startswith(f"{mod}_matrix_") and os.path.isfile(os.path.join(outdir, d, "csvfile.csv"))
+        ]
         dirs.sort(key=_trailing_number)
         created[mod] = os.path.join(outdir, dirs[-1], "csvfile.csv") if dirs else None
     return {
@@ -418,17 +396,14 @@ def parse_splitvar(obj, matrix_summary: dict, modalities: list[str]) -> dict:
 def parse_labbe(obj, corpus_summary: dict) -> dict:
     outdir = obj.parametres.get("pathout")
 
-    def j(name: str) -> str:
-        return os.path.join(outdir, name) if outdir else ""
-
     return {
         "analysis": "labbe",
         "output_dir": outdir,
         "corpus": corpus_summary,
         "parameters": {k: obj.parametres.get(k) for k in ("mineff", "indice", "typeformes", "clnb")},
         "modalities": list(getattr(obj, "listet", [])),
-        "distances": _read_csv(j("listdist.csv"))[:200],
-        "distance_matrix": _read_csv(j("distmat.csv"))[:50],
+        "distances": _read_csv(_out(outdir, "listdist.csv"))[:200],
+        "distance_matrix": _read_csv(_out(outdir, "distmat.csv"))[:50],
         "artifacts": _artifacts(outdir),
     }
 

@@ -1,33 +1,45 @@
-"""Runtime monkeypatches that make IRaMuTeQ analysis modules headless-safe.
+"""Import hook that makes the IRaMuTeQ analysis modules headless-safe.
 
-Three patches, all done by attribute replacement on the source modules (the
-source files themselves are never edited):
+The source files are never edited: a :data:`sys.meta_path` finder loads the
+real IRaMuTeQ module and patches its namespace right after its code runs,
+before the import statement that requested it returns.
 
-1. ``functions.progressbar`` -> no-op progress dialog (some analyses call it
-   unconditionally: textstat.py:39, textaslexico.py:39, textlabbe.py:84).
-2. ``functions.check_Rresult`` -> raises :class:`RScriptError` with R's
-   stderr instead of opening the ``BugReport`` wx dialog.
-3. ``functions.exec_rcode`` -> wrapped so the job manager can track (and
-   cancel) the spawned ``R`` process.
+* ``functions.progressbar`` -> no-op progress dialog (some analyses call it
+  unconditionally: textstat.py:39, textaslexico.py:39, textlabbe.py:84).
+* ``functions.check_Rresult`` -> raises :class:`RScriptError` with R's
+  stderr instead of opening the ``BugReport`` wx dialog.
+* ``functions.exec_rcode`` -> wrapped so the job manager can track (and
+  cancel) the spawned ``R`` process.
+* ``corpus.sqlite3`` -> shim allowing corpus handles to cross threads.
+* ``openanalyse.OpenAnalyse`` -> no-op instead of the GUI result viewer.
 
-Modules that did ``from functions import progressbar`` bind the name at
-import time, so after importing the analysis modules call :func:`sweep` to
-replace any remaining reference to the original objects.
+Because ``functions`` and ``openanalyse`` are patched before any other module
+can run ``from functions import progressbar``, every such binding receives
+the patched object; nothing has to be rebound afterwards.  This only holds
+when the hook is installed before the first IRaMuTeQ import, which
+:func:`install` enforces.
 """
 
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
 import logging
+import os
+import sqlite3
 import subprocess
 import sys
 import threading
+import types
+from collections.abc import Callable
+from typing import Any
 
 log = logging.getLogger("iramuteq_mcp")
 
 _local = threading.local()
 
 _ORIGINALS: dict[str, object] = {}
-_installed = False
+_PATCHERS: dict[str, Callable[[types.ModuleType], None]] = {}
 
 
 class RScriptError(RuntimeError):
@@ -60,10 +72,12 @@ def _noop_openanalyse(*args, **kwargs):
 
 
 def _stub_progressbar(self, maxi):
+    """Headless replacement for ``functions.progressbar``."""
     return StubProgress()
 
 
 def _check_rresult(parent, pid):
+    """Headless replacement for ``functions.check_Rresult``: raise instead of opening a dialog."""
     if isinstance(pid, subprocess.Popen):
         if pid.returncode != 0:
             try:
@@ -85,6 +99,8 @@ def _check_rresult(parent, pid):
 
 
 def _make_exec_rcode(orig):
+    """Wrap ``functions.exec_rcode`` so background R processes reach this thread's listener."""
+
     def exec_rcode(rpath, rcode, wait=True, graph=False):
         result = orig(rpath, rcode, wait=wait, graph=graph)
         if not wait:
@@ -101,24 +117,6 @@ def set_process_listener(callback) -> None:
     _local.listener = callback
 
 
-def install() -> None:
-    global _installed
-    if _installed:
-        return
-    import functions
-
-    _ORIGINALS["progressbar"] = functions.progressbar
-    _ORIGINALS["check_Rresult"] = functions.check_Rresult
-    _ORIGINALS["exec_rcode"] = functions.exec_rcode
-
-    functions.progressbar = _stub_progressbar
-    functions.check_Rresult = _check_rresult
-    functions.exec_rcode = _make_exec_rcode(_ORIGINALS["exec_rcode"])
-
-    sweep()
-    _installed = True
-
-
 class _SqliteShim:
     """sqlite3 proxy allowing corpus handles to cross the job worker threads."""
 
@@ -133,30 +131,87 @@ class _SqliteShim:
         return getattr(self._real, name)
 
 
-def sweep() -> None:
-    """Replace stale `from functions import ...` bindings with the patched ones."""
-    import functions
+def _patches_module(name: str):
+    """Register the decorated function as the patcher run when IRaMuTeQ module ``name`` loads."""
 
-    pairs = [
-        (_ORIGINALS.get("progressbar"), functions.progressbar),
-        (_ORIGINALS.get("check_Rresult"), functions.check_Rresult),
-        (_ORIGINALS.get("exec_rcode"), functions.exec_rcode),
-    ]
-    for mod in list(sys.modules.values()):
-        if mod is None:
-            continue
-        for name, val in list(vars(mod).items()):
-            for old, new in pairs:
-                if old is not None and val is old and new is not val:
-                    setattr(mod, name, new)
-                    break
-        # corpus keeps sqlite handles across threads (build thread != job thread)
-        if mod.__name__ == "corpus" and not isinstance(vars(mod).get("sqlite3"), _SqliteShim):
-            import sqlite3
+    def register(fn: Callable[[types.ModuleType], None]):
+        _PATCHERS[name] = fn
+        return fn
 
-            setattr(mod, "sqlite3", _SqliteShim(sqlite3))  # noqa: B010 - dynamic module patch
-        # AnalyseMatrix's success path calls OpenAnalyse (GUI result viewer)
-        oa = sys.modules.get("openanalyse")
-        if oa is not None and mod.__name__ not in ("openanalyse", "iramuteq_mcp.bridge.patches"):
-            if vars(mod).get("OpenAnalyse") is oa.OpenAnalyse:
-                setattr(mod, "OpenAnalyse", _noop_openanalyse)  # noqa: B010 - dynamic module patch
+    return register
+
+
+@_patches_module("functions")
+def _patch_functions(mod: Any) -> None:
+    """Swap the GUI-bound helpers of ``functions`` for their headless versions."""
+    _ORIGINALS.update(progressbar=mod.progressbar, check_Rresult=mod.check_Rresult, exec_rcode=mod.exec_rcode)
+    mod.progressbar = _stub_progressbar
+    mod.check_Rresult = _check_rresult
+    mod.exec_rcode = _make_exec_rcode(_ORIGINALS["exec_rcode"])
+
+
+@_patches_module("corpus")
+def _patch_corpus(mod: Any) -> None:
+    """Let corpus sqlite handles be used from threads other than the one that opened them."""
+    mod.sqlite3 = _SqliteShim(sqlite3)
+
+
+@_patches_module("openanalyse")
+def _patch_openanalyse(mod: Any) -> None:
+    """Replace the GUI result viewer before any analysis module imports it."""
+    _ORIGINALS["OpenAnalyse"] = mod.OpenAnalyse
+    mod.OpenAnalyse = _noop_openanalyse
+
+
+class _PatchingLoader(importlib.abc.Loader):
+    """Runs the real loader, then the module's patcher, before the import returns."""
+
+    def __init__(self, real: importlib.abc.Loader, patcher: Callable[[types.ModuleType], None]):
+        self._real = real
+        self._patcher = patcher
+
+    def create_module(self, spec):
+        return self._real.create_module(spec)
+
+    def exec_module(self, module):
+        self._real.exec_module(module)
+        self._patcher(module)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+class _PatchingFinder(importlib.abc.MetaPathFinder):
+    """Resolves the patched module names inside the IRaMuTeQ source tree only."""
+
+    def __init__(self, root: str):
+        self.root = root
+
+    def find_spec(self, fullname, path=None, target=None):
+        patcher = _PATCHERS.get(fullname)
+        if patcher is None:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, [self.root])
+        if spec is None or spec.loader is None:
+            raise ImportError(f"IRaMuTeQ module {fullname!r} not found in {self.root}", name=fullname)
+        spec.loader = _PatchingLoader(spec.loader, patcher)
+        return spec
+
+
+def is_installed() -> bool:
+    """Whether the patching finder is registered on ``sys.meta_path``."""
+    return any(isinstance(f, _PatchingFinder) for f in sys.meta_path)
+
+
+def install(root: str) -> None:
+    """Register the patching finder for the IRaMuTeQ tree at ``root``.
+
+    Raises :class:`RuntimeError` when a patched module was imported earlier:
+    modules that copied its unpatched helpers would otherwise keep them silently.
+    """
+    if is_installed():
+        return
+    early = sorted(name for name in _PATCHERS if name in sys.modules)
+    if early:
+        raise RuntimeError(f"IRaMuTeQ modules {early} were imported before the patch hook was installed")
+    sys.meta_path.insert(0, _PatchingFinder(os.path.abspath(root)))

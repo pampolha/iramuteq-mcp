@@ -18,15 +18,12 @@ import tempfile
 import threading
 from types import SimpleNamespace
 
-from . import bootstrap, patches
+from . import bootstrap
 
 log = logging.getLogger("iramuteq_mcp")
 
 _corpus_cache: dict[str, tuple] = {}
 _cache_lock = threading.Lock()
-
-
-# --------------------------------------------------------------------- corpus
 
 
 def _corpus_key(path: str, parametres: dict, output_dir: str | None) -> str:
@@ -62,7 +59,6 @@ def build_corpus(
     from corpus import BuildFromAlceste, copycorpus
     from functions import DoConf
 
-    patches.sweep()  # corpus module now imported -> install the sqlite shim
     ira = bootstrap.get()
     ira.load_lexicon(lang)
     path = os.path.abspath(corpus_path)
@@ -70,7 +66,6 @@ def build_corpus(
         raise FileNotFoundError(f"corpus not found: {path}")
     options = dict(options or {})
 
-    # corpus.cfg defaults -> overrides (what CorpusPref would collect in the GUI)
     parametres = DoConf(ira.ConfigPath["corpus"]).getoptions("corpus")
     for k, v in options.items():
         if v is not None:
@@ -120,8 +115,9 @@ def corpus_summary(corpus) -> dict:
     }
 
 
-def get_corpus(corpus_path: str, lang: str = "french", encoding: str = "utf8", **kwargs):
-    return build_corpus(corpus_path, lang=lang, encoding=encoding, **kwargs)
+def load_corpus(corpus_path: str, lang: str, encoding: str, ucemethod: int | None = None, ucesize: int | None = None):
+    """Build (or fetch) the corpus with the given UCE segmentation; returns ``(corpus, summary)``."""
+    return build_corpus(corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize})
 
 
 def _prep_lemmas(corpus, lem: bool = True):
@@ -137,8 +133,6 @@ def _prep_lemmas(corpus, lem: bool = True):
     return keys
 
 
-# ------------------------------------------------------------ input bounds
-
 MAX_ACTIVES_RANGE = (50, 50000)
 
 
@@ -149,8 +143,6 @@ def validate_max_actives(value: int) -> int:
         raise ValueError(f"max_actives must be an integer between {lo} and {hi}, got {value!r}")
     return value
 
-
-# ------------------------------------------------------------ key overrides
 
 KEY_VALUES = {"0": "eliminated", "1": "active", "2": "supplementary"}
 
@@ -204,9 +196,6 @@ def key_summary() -> dict:
     return {k: KEY_VALUES.get(str(v), str(v)) for k, v in keys.items()}
 
 
-# ------------------------------------------------------- modality resolution
-
-
 def resolve_listet(corpus, modalities=None, single_variable=True):
     """Map user-given modalities to the ``*variable_modality`` forms IRaMuTeQ uses.
 
@@ -233,8 +222,8 @@ def resolve_listet(corpus, modalities=None, single_variable=True):
                 "variables must be written '*variable_modality' on the '****' line, e.g. '**** *sexe_h'; "
                 "'*sexe=h' and tokens without '_' are ignored by IRaMuTeQ (run corpus_validate)"
             )
-        first_var = sorted(by_var)[0]
-        listet = [m for m in all_mods if m.lstrip("*") in set(by_var[first_var])]
+        first_mods = set(by_var[sorted(by_var)[0]])
+        listet = [m for m in all_mods if m.lstrip("*") in first_mods]
     if not listet:
         raise ValueError("no modalities selected")
     if single_variable:
@@ -246,8 +235,6 @@ def resolve_listet(corpus, modalities=None, single_variable=True):
             )
     return sorted(listet)
 
-
-# ------------------------------------------------------------------- validate
 
 _CHECK_MESSAGES = {
     1: "starred variable contains a space",
@@ -317,9 +304,6 @@ def validate_corpus(corpus_path: str, encoding: str = "utf8", max_errors: int = 
             if len(errors) >= max_errors:
                 break
     return {"path": path, "ok": not errors, "errors": errors, "errors_reported": len(errors)}
-
-
-# ----------------------------------------------------------------- concordance
 
 
 def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
@@ -392,9 +376,6 @@ def concordance(corpus, lem: str, limit: int = 50, width: int = 60) -> dict:
     return out
 
 
-# -------------------------------------------------------------------- analyses
-
-
 def run_stats(
     corpus_path: str,
     lang: str = "french",
@@ -408,10 +389,7 @@ def run_stats(
     """Textual statistics (IRaMuTeQ Stat) — synchronous, fast."""
     from textstat import Stat
 
-    corpus, csum = get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     with key_overrides(active_keys, supplementary_keys):
         obj = Stat(bootstrap.get(), corpus, {"type": "stat", "lem": lem}, dlg=False, lemdial=False)
     from . import results
@@ -436,13 +414,8 @@ def run_alceste(
     from textreinert import Reinert
 
     ira = bootstrap.get()
-    corpus, csum = get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
 
-    # defaults = reinert.cfg [ALCESTE], overridden by tool options (the dialog
-    # would have collected exactly these keys)
     parametres = DoConf(ira.ConfigPath["reinert"]).getoptions("ALCESTE")
     parametres.pop("type", None)
     parametres.update({k: v for k, v in (options or {}).items() if v is not None})
@@ -478,10 +451,7 @@ def run_lexico(
     """
     from textaslexico import Lexico
 
-    corpus, csum = get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     listet = resolve_listet(corpus, modalities, single_variable=True)
 
     parametres = {"type": "spec", "lem": lem}
@@ -491,7 +461,6 @@ def run_lexico(
 
     class HeadlessLexico(Lexico):
         def make_config(self, config):
-            # the GUI dialog (OptLexi) would set these; inject from tool args
             self.listet = listet
             config.setdefault("mineff", 10)
             config.setdefault("indice", "hypergeo")
@@ -522,12 +491,7 @@ def run_similitude(
     """Similarity graph between active forms (IRaMuTeQ SimiTxt) — job payload."""
     from textsimi import SimiTxt
 
-    corpus, csum = get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
-    # makesimiparam is a SimiTxt method (defaults the GUI would show); calling it
-    # unbound on a holder keeps the defaults in sync with the source tree.
+    corpus, csum = load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     holder = SimpleNamespace(parametres={})
     SimiTxt.makesimiparam(holder)
     parametres = {"type": "simitxt", "lem": lem}
@@ -537,9 +501,6 @@ def run_similitude(
         parametres["pathout"] = output_dir
 
     with key_overrides(active_keys, supplementary_keys):
-        # Headless SimiTxt never collects 'selected' itself: its doanalyse writes
-        # selected.csv as ``order_actives[val][0] for val in parametres['selected']``,
-        # i.e. positions in the frequency-sorted list of ``make_actives_limit(3)``.
         _prep_lemmas(corpus, lem=lem)
         actives = corpus.make_actives_limit(3)
         eff = [corpus.getlemeff(a) for a in actives]
@@ -547,7 +508,8 @@ def run_similitude(
         if not forms:
             parametres["selected"] = list(range(len(actives)))
         else:
-            missing = [f for f in forms if f not in set(actives)]
+            active_set = set(actives)
+            missing = [f for f in forms if f not in active_set]
             if missing:
                 raise ValueError(f"forms not among the active forms: {missing}; active forms: {sorted(actives)[:50]}")
             rank = {i: p for p, i in enumerate(order)}

@@ -52,7 +52,6 @@ class JobStatus(enum.StrEnum):
 FINISHED = (JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELLED, JobStatus.INTERRUPTED)
 ACTIVE = (JobStatus.QUEUED, JobStatus.RUNNING)
 
-# R reports allocation failures with these phrases (R >= 4.x and older builds).
 _OOM_MARKERS = (
     "cannot allocate vector",
     "vector memory exhausted",
@@ -60,10 +59,6 @@ _OOM_MARKERS = (
     "out of memory",
 )
 
-# Analyses are serialized: they share the cached corpus/matrix objects and
-# process-global config (key.cfg), and R is memory-hungry; parallel runs
-# would thrash anyway. Reentrant, because a job runner holds it while the
-# bridge functions it calls take it again on the same thread.
 _ANALYSIS_LOCK = threading.RLock()
 
 
@@ -75,7 +70,7 @@ def analysis_lock() -> threading.RLock:
 def classify_r_error(exc: patches.RScriptError) -> str:
     """Map a failed R run to an error kind the client can act on."""
     if exc.returncode is not None and exc.returncode < 0:
-        return "killed"  # terminated by a signal (e.g. OOM killer, cancel)
+        return "killed"
     text = (exc.output or "").lower()
     if any(marker in text for marker in _OOM_MARKERS):
         return "out_of_memory"
@@ -129,8 +124,6 @@ class JobManager:
         self._lock = threading.Lock()
         self._adopt_orphans()
 
-    # ------------------------------------------------------------ persistence
-
     def _record_path(self, job_id: str) -> str:
         return os.path.join(self.jobs_dir, f"{job_id}.json")
 
@@ -170,7 +163,6 @@ class JobManager:
             if attr in rec:
                 setattr(job, attr, rec[attr])
         if "status" in rec:
-            # raises for a value this build doesn't know → record skipped
             job.status = JobStatus(rec["status"])
         if job.status in ACTIVE:
             job.status = JobStatus.INTERRUPTED
@@ -178,8 +170,6 @@ class JobManager:
             job.ended = time.time()
             self._persist(job)
         self._jobs[job.id] = job
-
-    # ----------------------------------------------------------------- submit
 
     def submit(self, kind: str, params: dict, runner: Callable[[Job], dict]) -> Job:
         job = Job(id=uuid.uuid4().hex[:12], kind=kind, params=params)
@@ -226,8 +216,6 @@ class JobManager:
             patches.set_process_listener(None)
             self._persist(job)
 
-    # --------------------------------------------------------------- queries
-
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
@@ -239,8 +227,6 @@ class JobManager:
         if job is None:
             return None
         return {**job.summary(), "result": job.result}
-
-    # --------------------------------------------------------------- control
 
     def cancel(self, job_id: str) -> dict | None:
         job = self._jobs.get(job_id)

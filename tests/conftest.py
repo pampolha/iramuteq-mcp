@@ -22,7 +22,7 @@ def _r_status() -> dict:
 
         try:
             _R_STATUS = run(status())
-        except Exception as exc:  # R missing or sources not found
+        except Exception as exc:
             _R_STATUS = {"ready": False, "error": str(exc)}
     return _R_STATUS
 

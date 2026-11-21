@@ -82,9 +82,6 @@ def _job_manager() -> jobs.JobManager:
 
 
 def _locked(fn, *args, **kwargs):
-    # the IRaMuTeQ sources are only importable after bootstrap (sys.path + wx stub),
-    # so initialise it here: bridge functions import those modules at call time and
-    # may be the first thing a fresh server process ever runs.
     bootstrap.get()
     with jobs.analysis_lock():
         return fn(*args, **kwargs)
@@ -100,8 +97,6 @@ async def _submit(kind: str, params: dict, runner) -> dict:
     return manager.submit(kind, params, runner).summary()
 
 
-# Rendering flags of the similitude graphs: IRaMuTeQ stores them as 0/1, the
-# way the GUI checkboxes write them.
 _SIMI_FLAGS = frozenset({"com", "halo", "label_e", "cexfromchi", "svg"})
 
 
@@ -120,7 +115,10 @@ def _simi_render_options(**render) -> dict:
     return {k: int(v) if k in _SIMI_FLAGS else v for k, v in render.items() if v is not None}
 
 
-# ---------------------------------------------------------------------- status
+def _simi_options(coeff: int, layout: int, seuil: float, arbremax: bool, **render) -> dict:
+    """Graph options shared by the corpus and matrix similitude tools."""
+    base = {"coeff": coeff, "layout": layout, "seuil": seuil, "arbremax": int(arbremax)}
+    return {**base, **_simi_render_options(**render)}
 
 
 @mcp.tool
@@ -164,9 +162,6 @@ async def status() -> dict:
     }
 
 
-# ---------------------------------------------------------------------- corpus
-
-
 @mcp.tool
 async def corpus_validate(
     path: Annotated[str, "Absolute path to the ALCESTE-formatted .txt corpus"],
@@ -201,13 +196,8 @@ async def corpus_build(
     '*sexe=h' build fine but are ignored, leaving no variables for
     corpus_lexico and the other variable-based analyses.
     """
-    options = {"ucemethod": ucemethod, "ucesize": ucesize}
-
-    def run():
-        _, summary = textops.build_corpus(path, lang=lang, encoding=encoding, options=options)
-        return summary
-
-    return await _sync(run)
+    _, summary = await _sync(textops.load_corpus, path, lang, encoding, ucemethod, ucesize)
+    return summary
 
 
 @mcp.tool
@@ -241,59 +231,10 @@ async def corpus_concordance(
     """Keyword-in-context concordance for a lemma, with UCI/variables of each hit."""
 
     def run():
-        corpus, _ = textops.build_corpus(
-            path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-        )
+        corpus, _ = textops.load_corpus(path, lang, encoding, ucemethod, ucesize)
         return textops.concordance(corpus, lem, limit=limit, width=width)
 
     return await _sync(run)
-
-
-# --------------------------------------------------------------- text analyses
-
-
-def _alceste_job(
-    path,
-    lang,
-    encoding,
-    lem,
-    output_dir,
-    options,
-    active_keys=None,
-    supplementary_keys=None,
-    ucemethod=None,
-    ucesize=None,
-):
-    def runner(job):
-        job.phase = "corpus + CHD + profiles/AFC (R)"
-        res = textops.run_alceste(
-            path,
-            lang=lang,
-            encoding=encoding,
-            lem=lem,
-            output_dir=output_dir,
-            options=options,
-            active_keys=active_keys,
-            supplementary_keys=supplementary_keys,
-            ucemethod=ucemethod,
-            ucesize=ucesize,
-        )
-        job.phase = "done"
-        return res
-
-    return _submit(
-        "corpus_alceste",
-        {
-            "path": path,
-            "lang": lang,
-            "encoding": encoding,
-            "lem": lem,
-            "options": options or {},
-            "ucemethod": ucemethod,
-            "ucesize": ucesize,
-        },
-        runner,
-    )
 
 
 @mcp.tool
@@ -330,8 +271,36 @@ async def corpus_alceste(
         "svdmethod": svdmethod,
         "mode.patate": 0,
     }
-    return await _alceste_job(
-        path, lang, encoding, lem, output_dir, options, active_keys, supplementary_keys, ucemethod, ucesize
+
+    def runner(job):
+        job.phase = "corpus + CHD + profiles/AFC (R)"
+        res = textops.run_alceste(
+            path,
+            lang=lang,
+            encoding=encoding,
+            lem=lem,
+            output_dir=output_dir,
+            options=options,
+            active_keys=active_keys,
+            supplementary_keys=supplementary_keys,
+            ucemethod=ucemethod,
+            ucesize=ucesize,
+        )
+        job.phase = "done"
+        return res
+
+    return await _submit(
+        "corpus_alceste",
+        {
+            "path": path,
+            "lang": lang,
+            "encoding": encoding,
+            "lem": lem,
+            "options": options,
+            "ucemethod": ucemethod,
+            "ucesize": ucesize,
+        },
+        runner,
     )
 
 
@@ -421,26 +390,24 @@ async def corpus_similitude(
     left out keeps IRaMuTeQ's own default (SimiTxt.makesimiparam) and is
     forwarded to the generated R script unchanged.
     """
-    options = {
-        "coeff": coeff,
-        "layout": layout,
-        "seuil": seuil,
-        "arbremax": int(arbremax),
-        **_simi_render_options(
-            com=com,
-            communities=communities,
-            halo=halo,
-            label_e=label_e,
-            tvmin=tvmin,
-            tvmax=tvmax,
-            vcexmin=vcexmin,
-            vcexmax=vcexmax,
-            cexfromchi=cexfromchi,
-            width=width,
-            height=height,
-            svg=svg,
-        ),
-    }
+    options = _simi_options(
+        coeff,
+        layout,
+        seuil,
+        arbremax,
+        com=com,
+        communities=communities,
+        halo=halo,
+        label_e=label_e,
+        tvmin=tvmin,
+        tvmax=tvmax,
+        vcexmin=vcexmin,
+        vcexmax=vcexmax,
+        cexfromchi=cexfromchi,
+        width=width,
+        height=height,
+        svg=svg,
+    )
 
     def runner(job):
         job.phase = "similarity matrix + graph (R)"
@@ -465,9 +432,6 @@ async def corpus_similitude(
     )
 
 
-# ---------------------------------------------------------------------- matrix
-
-
 @mcp.tool
 async def matrix_open(
     path: Annotated[str, "Absolute path to the .csv/.xls/.ods table"],
@@ -480,19 +444,17 @@ async def matrix_open(
 ) -> dict:
     """Load an individuals x variables table as an IRaMuTeQ matrix (cached)."""
 
-    def run():
-        _, summary = matrixops.open_matrix(
-            path,
-            filetype=filetype,
-            encoding=encoding,
-            colsep=colsep,
-            sheetnb=sheetnb,
-            firstrowiscolnames=firstrowiscolnames,
-            firstcolisrownames=firstcolisrownames,
-        )
-        return summary
-
-    return await _sync(run)
+    _, summary = await _sync(
+        matrixops.open_matrix,
+        path,
+        filetype=filetype,
+        encoding=encoding,
+        colsep=colsep,
+        sheetnb=sheetnb,
+        firstrowiscolnames=firstrowiscolnames,
+        firstcolisrownames=firstcolisrownames,
+    )
+    return summary
 
 
 @mcp.tool
@@ -653,26 +615,24 @@ async def matrix_similitude(
     left out keeps DoSimi's own default and reaches the generated R script
     unchanged.
     """
-    options = {
-        "coeff": coeff,
-        "layout": layout,
-        "seuil": seuil,
-        "arbremax": int(arbremax),
-        **_simi_render_options(
-            com=com,
-            communities=communities,
-            halo=halo,
-            label_e=label_e,
-            tvmin=tvmin,
-            tvmax=tvmax,
-            vcexmin=vcexmin,
-            vcexmax=vcexmax,
-            cexfromchi=cexfromchi,
-            width=width,
-            height=height,
-            svg=svg,
-        ),
-    }
+    options = _simi_options(
+        coeff,
+        layout,
+        seuil,
+        arbremax,
+        com=com,
+        communities=communities,
+        halo=halo,
+        label_e=label_e,
+        tvmin=tvmin,
+        tvmax=tvmax,
+        vcexmin=vcexmin,
+        vcexmax=vcexmax,
+        cexfromchi=cexfromchi,
+        width=width,
+        height=height,
+        svg=svg,
+    )
 
     def runner(job):
         job.phase = "similarity matrix + graph (R)"
@@ -687,9 +647,6 @@ async def matrix_similitude(
         )
 
     return await _submit("matrix_similitude", {"path": path, "columns": columns, "options": options}, runner)
-
-
-# ------------------------------------------------------- corpus utilities (A4)
 
 
 @mcp.tool
@@ -754,9 +711,6 @@ async def corpus_export_class(
         ucemethod=ucemethod,
         ucesize=ucesize,
     )
-
-
-# --------------------------------------------- text analyses, part 2 (B2)
 
 
 @mcp.tool
@@ -995,9 +949,6 @@ async def corpus_tgen_prof(
     return await _submit("corpus_tgen_prof", params, runner)
 
 
-# ------------------------------------------------------------------------ jobs
-
-
 def _unknown_job(job_id: str) -> ToolError:
     return ToolError(f"unknown job id: {job_id}. Use job_list to see known jobs.")
 
@@ -1013,7 +964,6 @@ async def job_status(
     if job is None:
         raise _unknown_job(job_id)
     if ctx is not None and job.status in jobs.ACTIVE:
-        # sent only when the client supplied a progress token
         await ctx.report_progress(progress=job.elapsed, message=job.phase or job.status)
     return job.summary()
 
@@ -1066,9 +1016,6 @@ async def job_prune(
         raise ToolError(f"unknown statuses {bad}; choose from {sorted(str(s) for s in allowed)}")
     older = None if older_than_hours is None else older_than_hours * 3600
     return await asyncio.to_thread(lambda: _job_manager().prune(job_ids, chosen, older))
-
-
-# ------------------------------------------------------------------- reporting
 
 
 @mcp.tool

@@ -17,13 +17,10 @@ import os
 import threading
 from typing import Any
 
-from . import bootstrap, patches, textops
+from . import bootstrap, textops
 
 _tls = threading.local()
 _selectcolumn_patched = False
-
-
-# ------------------------------------------------------------------ plumbing
 
 
 def _install_headless_selectcolumn() -> None:
@@ -38,15 +35,16 @@ def _install_headless_selectcolumn() -> None:
         sel = selected
         forms = getattr(_tls, "forms", None)
         excludes = getattr(_tls, "exclude_forms", None)
-        if sel is None and forms and excludes:
-            raise ValueError("forms and exclude_forms are mutually exclusive")
+        pos: dict = {}
+        for i, form in enumerate(actives):
+            pos.setdefault(form, i)
         if sel is None and forms:
-            missing = [f for f in forms if f not in actives]
+            missing = [f for f in forms if f not in pos]
             if missing:
                 raise ValueError(f"forms not available for this selection: {missing}")
-            sel = [actives.index(f) for f in forms]
+            sel = [pos[f] for f in forms]
         elif sel is None and excludes:
-            missing = [f for f in excludes if f not in actives]
+            missing = [f for f in excludes if f not in pos]
             if missing:
                 raise ValueError(f"exclude_forms not available for this selection: {missing}")
             drop = set(excludes)
@@ -59,22 +57,23 @@ def _install_headless_selectcolumn() -> None:
     _selectcolumn_patched = True
 
 
-def new_outdir(base: str, kind: str) -> str:
-    """Create ``<base>/<kind>_<N>`` with the first free N (IRaMuTeQ naming style)."""
+def _first_free(pattern: str) -> str:
+    """First path ``pattern.format(n)`` (n = 1, 2, ...) that does not exist yet (IRaMuTeQ naming style)."""
     n = 1
-    while os.path.exists(os.path.join(base, f"{kind}_{n}")):
+    while os.path.exists(pattern.format(n)):
         n += 1
-    path = os.path.join(base, f"{kind}_{n}")
+    return pattern.format(n)
+
+
+def new_outdir(base: str, kind: str) -> str:
+    """Create ``<base>/<kind>_<N>`` with the first free N."""
+    path = _first_free(os.path.join(base, kind + "_{}"))
     os.makedirs(path)
     return path
 
 
 def _nb_graph(outdir: str, svg: bool) -> str:
-    end = ".svg" if svg else ".png"
-    nb = 1
-    while os.path.exists(os.path.join(outdir, f"nuage_{nb}{end}")):
-        nb += 1
-    return os.path.join(outdir, f"nuage_{nb}{end}")
+    return _first_free(os.path.join(outdir, "nuage_{}" + (".svg" if svg else ".png")))
 
 
 def _rgb(value, default):
@@ -86,9 +85,6 @@ def _rgb(value, default):
     if not all(0 <= c <= 255 for c in (r, g, b)):
         raise ValueError("colours are RGB triples with components in 0..255")
     return (r, g, b)
-
-
-# --------------------------------------------------------------------- labbé
 
 
 def run_labbe(
@@ -111,10 +107,7 @@ def run_labbe(
 
     if indice not in ("hypergeo", "chi2"):
         raise ValueError("indice must be 'hypergeo' or 'chi2'")
-    corpus, csum = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     listet = textops.resolve_listet(corpus, modalities, single_variable=True)
     parametres = {
         "type": "labbe",
@@ -129,7 +122,7 @@ def run_labbe(
 
     class HeadlessLabbe(DistLabbe):
         def make_config(self, config):
-            self.listet = listet  # DistLabbe.preferences() would collect this
+            self.listet = listet
             return config
 
     with textops.key_overrides(active_keys, supplementary_keys):
@@ -138,8 +131,6 @@ def run_labbe(
 
     return results.parse_labbe(obj, csum)
 
-
-# ----------------------------------------------------------------- wordclouds
 
 _CLOUD_DEFAULTS = {
     "width": 800,
@@ -220,10 +211,7 @@ def run_wordcloud(
         raise ValueError("forms and exclude_forms are mutually exclusive")
     _install_headless_selectcolumn()
     opts = _cloud_options(options)
-    corpus, csum = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     parametres = {"type": "wordcloud", "lem": lem}
     if output_dir:
         parametres["pathout"] = output_dir
@@ -274,7 +262,6 @@ def run_class_cloud(
     profiles = ReadProfileAsDico(prof_file, Alceste=True)
     if str(class_id) not in profiles:
         raise ValueError(f"class {class_id} not in profile (classes: {sorted(profiles)})")
-    # rows after treat_line_alceste: [i, rank, eff, freq, chi2, '', form, p]
     clusterprof = [
         [row[6], row[2], row[4]]
         for row in profiles[str(class_id)][1:]
@@ -285,10 +272,7 @@ def run_class_cloud(
 
     _install_headless_selectcolumn()
     opts = _cloud_options(options)
-    corpus, csum = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     parametres = {"type": "clustercloud", "lem": lem, "clusterprof": clusterprof, "indice": indice}
     if output_dir:
         parametres["pathout"] = output_dir
@@ -300,9 +284,6 @@ def run_class_cloud(
     from . import results
 
     return results.parse_wordcloud(obj, csum, cluster={"class_id": class_id, "indice": indice})
-
-
-# ---------------------------------------------------------------------- tgen
 
 
 def _write_filtered_tgen(src: str, dest: str, corpus) -> dict:
@@ -344,10 +325,7 @@ def run_tgen_spec(
     tgen_src = os.path.abspath(tgen_path)
     if not os.path.isfile(tgen_src):
         raise FileNotFoundError(f"tgen file not found: {tgen_src}")
-    corpus, csum = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     base = output_dir or csum["pathout"]
     outdir = new_outdir(base, "tgenspec")
     with textops.key_overrides(active_keys, supplementary_keys):
@@ -389,10 +367,7 @@ def run_tgen_prof(
         raise FileNotFoundError(f"tgen file not found: {tgen_src}")
     if not os.path.isfile(uce_file):
         raise FileNotFoundError(f"no uce.csv in {analysis_dir}; run corpus_alceste first")
-    corpus, csum = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
-    patches.sweep()
+    corpus, csum = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     outdir = new_outdir(os.path.abspath(analysis_dir), "tgenprof")
     with textops.key_overrides(active_keys, supplementary_keys):
         textops._prep_lemmas(corpus, lem=lem)

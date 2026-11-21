@@ -11,7 +11,7 @@ imported through ``sys.path``.
 
 from __future__ import annotations
 
-import configparser  # stdlib must win over the vendored configparser.py
+import configparser
 import json
 import logging
 import os
@@ -53,7 +53,6 @@ class IraContext:
         self.AppliPath = appli_path
         self.ImagePath = os.path.join(appli_path, "images")
 
-        # configuration generale (factory files live in the source tree)
         from chemins import (
             ConstructConfigPath,
             ConstructDicoPath,
@@ -75,14 +74,12 @@ class IraContext:
         self.ConfigPath = ConstructConfigPath(self.UserConfigPath)
         self.DictPath = ConstructDicoPath(self.UserConfigPath)
 
-        # user config directory + seed any missing config/dictionaries
         from checkinstall import CreateIraDirectory
 
         CreateIraDirectory(self.UserConfigPath, appli_path)
         self._seed_configs(ConstructConfigPath(appli_path, user=False))
         self._seed_dicos(ConstructDicoPath(appli_path))
 
-        # R script locations: PathOut-based map exactly like IraFrame.__init__
         self.RscriptsPath = PathOut(dirout=os.path.join(appli_path, "Rscripts"))
         self.RscriptsPath.basefiles(RSCRIPT_FILES)
 
@@ -103,8 +100,6 @@ class IraContext:
         self.tree = NoOpTree()
         self.filename = ""
         self.input_path = ""
-
-    # ------------------------------------------------------------------ setup
 
     def _seed_configs(self, factory: dict) -> None:
         import shutil
@@ -146,11 +141,8 @@ class IraContext:
                 json.dump({"history": [], "matrix": []}, f)
         return History(histfile)
 
-    # ------------------------------------------------------------------ lexicon
-
     def load_lexicon(self, lang: str = "french") -> None:
-        """Load Lexique 3 + expression dictionary for ``lang``.
-        """
+        """Load Lexique 3 + expression dictionary for ``lang``."""
         if lang == self._lexicon_lang:
             return
         from functions import ReadDicoAsDico, ReadLexique
@@ -175,16 +167,14 @@ def init(iramuteq_path: str | None = None) -> IraContext:
         if not os.path.isfile(os.path.join(root, "iramuteq.py")):
             raise RuntimeError(f"IRaMuTeQ sources not found at {root} (set IRAMUTEQ_PATH)")
 
-        # langue._init() and friends derive AppliPath from sys.argv[0]
         sys.argv[0] = os.path.join(root, "iramuteq.py")
         if root not in sys.path:
             sys.path.insert(0, root)
 
-        _ctx = IraContext(root)
-
         from . import patches
 
-        patches.install()
+        patches.install(root)
+        _ctx = IraContext(root)
         log.info("iramuteq bootstrap ok: appli=%s user=%s R=%s", root, _ctx.UserConfigPath, _ctx.RPath)
     return _ctx
 

@@ -21,7 +21,6 @@ def test_cancel_terminates_running_r_process(tmp_path):
     corpus = write_large_corpus(tmp_path / "large.txt", documents=400)
     job = run(corpus_alceste(str(corpus), lang="french", nbcl_p1=5, max_actives=2000))
 
-    # wait until IRaMuTeQ has spawned its R process for this job
     record = _manager().get(job["job_id"])
     deadline = time.time() + 300
     while record.popen is None and record.status in jobs_mod.ACTIVE and time.time() < deadline:
@@ -29,7 +28,7 @@ def test_cancel_terminates_running_r_process(tmp_path):
     if record.popen is None:
         pytest.skip("analysis finished before an R process could be observed")
 
-    process = record.popen  # keep a handle: the job clears it when it ends
+    process = record.popen
     cancelled = run(job_cancel(job["job_id"]))
     assert cancelled["status"] in (jobs_mod.JobStatus.CANCELLED, jobs_mod.JobStatus.RUNNING)
 

@@ -112,9 +112,7 @@ def test_prune_by_status_and_age(manager):
     ok = wait_for(manager, manager.submit("ok", {}, lambda j: {}).id)
     bad = wait_for(manager, manager.submit("bad", {}, lambda j: 1 / 0).id)
 
-    # too recent for an age filter: nothing removed
     assert manager.prune(older_than_s=3600)["removed"] == []
-    # status filter: only errors (plain strings and members both accepted)
     assert manager.prune(statuses=["error"])["removed"] == [bad.id]
     assert manager.get(ok.id) is not None
 
@@ -172,7 +170,6 @@ def test_status_is_a_job_status_member(manager):
     job = wait_for(manager, manager.submit("demo", {}, lambda j: {}).id)
     assert isinstance(job.status, jobs.JobStatus)
     assert job.status is jobs.JobStatus.DONE
-    # string records still serialise as their plain value
     assert json.loads(json.dumps(job.summary()))["status"] == "done"
 
 

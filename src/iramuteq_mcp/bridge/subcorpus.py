@@ -61,12 +61,10 @@ def split_by_variable(path: str, variable: str, encoding: str = "utf8") -> dict:
     bare = variable.lstrip("*")
     if not bare or "_" in bare:
         raise ValueError("variable must be a bare name, e.g. 'sexe' (not 'sexe_h')")
-    # the source matches the starred variable name as written in the headers
     var = "*" + bare
     base = os.path.dirname(src)
     before = _listing(base)
     SplitFromVar({"filein": src, "var": var, "encodein": encoding, "encodeout": "utf8"})
-    # the splitter rewrites <var>_<mod>.txt for each modality present
     expected = {
         os.path.join(base, t.lstrip("*") + ".txt") for t in _header_tokens(src) if t.startswith("*" + bare + "_")
     }
@@ -145,9 +143,7 @@ def export_class(
     The corpus must be the one the classification was run on (same file,
     language, encoding and segmentation), so that UCE identifiers line up.
     """
-    corpus, _ = textops.get_corpus(
-        corpus_path, lang=lang, encoding=encoding, options={"ucemethod": ucemethod, "ucesize": ucesize}
-    )
+    corpus, _ = textops.load_corpus(corpus_path, lang, encoding, ucemethod, ucesize)
     uce_file = os.path.join(os.path.abspath(analysis_dir), "uce.csv")
     if not os.path.isfile(uce_file):
         raise FileNotFoundError(f"no uce.csv in {analysis_dir}; run corpus_alceste first")

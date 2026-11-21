@@ -24,7 +24,6 @@ _matrix_cache: dict[str, object] = {}
 _cache_lock = threading.Lock()
 _open_options: dict[str, dict] = {}
 
-# graph options for similitude (values as produced by DoSimi.make_param defaults)
 _SIMI_DEFAULTS = {
     "coeff": 0,
     "layout": 2,
@@ -72,9 +71,6 @@ _CHI_OPTIONS = (
     "graph",
     "bw",
 )
-
-
-# ---------------------------------------------------------------------- open
 
 
 def _matrix_key(path: str, opts: dict) -> str:
@@ -160,9 +156,6 @@ def _get_matrix(matrix_path: str, **kwargs):
     return open_matrix(matrix_path, **{**remembered, **given})
 
 
-# ------------------------------------------------------------------ analyses
-
-
 def run_frequencies(
     matrix_path: str,
     columns: list[int],
@@ -174,7 +167,6 @@ def run_frequencies(
     from tabfrequence import Frequences
 
     tableau, msum = _get_matrix(matrix_path, **open_kwargs)
-    patches.sweep()
 
     class HeadlessFreq(Frequences):
         def doparametres(self, dlg=None):
@@ -199,24 +191,8 @@ def run_chi2(
     """Chi-square independence tests between two column sets (IRaMuTeQ ChiSquare)."""
     from tabchi2 import ChiSquare, chioption
 
-    tableau, msum = _get_matrix(matrix_path, **open_kwargs)
-    patches.sweep()
-
-    opts = {k: bool(v) for k, v in (options or {}).items() if k in _CHI_OPTIONS}
-    opts = {**{k: chioption.get(k, True) for k in _CHI_OPTIONS}, **opts}
-
-    class HeadlessChi2(ChiSquare):
-        def doparametres(self, dlg=None):
-            self.colsel1 = list(columns_a)
-            self.colsel2 = list(columns_b)
-            self.chioption = opts
-            self.parametres.update(opts)
-
-    parametres = {"type": "chi2", **opts}
-    obj = HeadlessChi2(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
-    from . import results
-
-    return results.parse_chi2(obj, msum)
+    defaults = {k: chioption.get(k, True) for k in _CHI_OPTIONS}
+    return _run_chi_family(ChiSquare, "chi2", defaults, matrix_path, columns_a, columns_b, options, open_kwargs)
 
 
 def run_mcnemar(
@@ -229,23 +205,23 @@ def run_mcnemar(
     """McNemar chi-square tests between two column sets."""
     from tabchi2mcnemar import McNemar
 
+    defaults = dict.fromkeys(_CHI_OPTIONS, True)
+    return _run_chi_family(McNemar, "chi2mcnemar", defaults, matrix_path, columns_a, columns_b, options, open_kwargs)
+
+
+def _run_chi_family(cls, kind, defaults, matrix_path, columns_a, columns_b, options, open_kwargs) -> dict:
+    """Run a ChiSquare-like analysis (ChiSquare, McNemar) between two column sets."""
     tableau, msum = _get_matrix(matrix_path, **open_kwargs)
-    patches.sweep()
+    opts = {**defaults, **{k: bool(v) for k, v in (options or {}).items() if k in _CHI_OPTIONS}}
 
-    opts = {
-        **{k: True for k in _CHI_OPTIONS},
-        **{k: bool(v) for k, v in (options or {}).items() if k in _CHI_OPTIONS},
-    }
-
-    class HeadlessMcNemar(McNemar):
+    class Headless(cls):
         def doparametres(self, dlg=None):
             self.colsel1 = list(columns_a)
             self.colsel2 = list(columns_b)
             self.chioption = opts
             self.parametres.update(opts)
 
-    parametres = {"type": "chi2mcnemar", **opts}
-    obj = HeadlessMcNemar(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
+    obj = Headless(bootstrap.get(), tableau, {"type": kind, **opts}, dlg=patches.StubProgress())
     from . import results
 
     return results.parse_chi2(obj, msum)
@@ -265,7 +241,6 @@ def run_matrix_reinert(
     from tabchdalc import AnalyseQuest
 
     tableau, msum = _get_matrix(matrix_path, **open_kwargs)
-    patches.sweep()
 
     parametres = {"type": "reinertmatrix", "nbcl_p1": nbcl_p1, "mincl": mincl}
     if formatted:
@@ -275,8 +250,6 @@ def run_matrix_reinert(
             raise ValueError("active_columns is required (or use formatted=True)")
         ncol = len(tableau.get_colnames())
         active = list(active_columns)
-        # IRaMuTeQ's profile stage always reads a supplementary table; default
-        # to the remaining columns (illustrative variables) so it is never empty
         sup = (
             list(supplementary_columns)
             if supplementary_columns is not None
@@ -291,7 +264,7 @@ def run_matrix_reinert(
 
     class HeadlessQuest(AnalyseQuest):
         def doparametres(self, dlg=None):
-            pass  # everything comes in self.parametres
+            pass
 
     obj = HeadlessQuest(bootstrap.get(), tableau, parametres, dlg=patches.StubProgress())
     from . import results
@@ -313,10 +286,8 @@ def run_matrix_similitude(
     from tabsimi import DoSimi
 
     tableau, msum = _get_matrix(matrix_path, **open_kwargs)
-    patches.sweep()
 
     paramsimi = dict(_SIMI_DEFAULTS)
-    # None in options means "keep DoSimi's default", as in textops.run_similitude
     paramsimi.update({k: v for k, v in (options or {}).items() if k in _SIMI_DEFAULTS and v is not None})
     paramsimi["first"] = True
 
@@ -382,7 +353,6 @@ def run_freqmulti(
     from tabfrequence import FreqMultiple
 
     tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
-    patches.sweep()
 
     class HeadlessFreqMulti(FreqMultiple):
         def doparametres(self, dlg=None):
@@ -411,7 +381,6 @@ def run_splitvar(
     from tabsplitvar import SplitMatrixFromVar
 
     tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
-    patches.sweep()
     modalities = sorted(tableau.splitfromvar(column).keys())
 
     class HeadlessSplit(SplitMatrixFromVar):
@@ -450,7 +419,6 @@ def run_proto(
     if typegraph not in ("classical", "plan"):
         raise ValueError("typegraph must be 'classical' or 'plan'")
     tableau, msum = _get_matrix(matrix_path, encoding=encoding, colsep=colsep)
-    patches.sweep()
 
     class HeadlessProto(Prototypical):
         def doparametres(self, dlg=None):
